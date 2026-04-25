@@ -21,10 +21,3 @@ tmp/
 
 # Project management
 .sisyphus/
-
-# Root-level stale duplicates from earlier sessions
-# (real project lives in big-a/)
-/configs/
-/scripts/
-/src/
-/tests/
