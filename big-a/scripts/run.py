@@ -148,7 +148,7 @@ def _predict_kronos(
     from big_a.qlib_config import init_qlib
 
     init_qlib()
-    instruments = list(D.instruments(market))
+    instruments = D.list_instruments(instruments=D.instruments(market), as_list=True)
     logger.info(f"Loaded {len(instruments)} instruments from market={market}")
 
     signals = gen.generate_signals(

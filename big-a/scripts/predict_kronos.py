@@ -49,7 +49,7 @@ def predict(
             from qlib.data import D
             from big_a.qlib_config import init_qlib
             init_qlib()
-            instruments = list(D.instruments(market))
+            instruments = D.list_instruments(instruments=D.instruments(market), as_list=True)
             logger.info("Loaded {} instruments from market={}", len(instruments), market)
         except Exception as exc:
             logger.error("Cannot resolve market instruments: {}", exc)
