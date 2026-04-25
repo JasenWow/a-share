@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+*.bin
+output/
+notebooks/.ipynb_checkpoints/
+*.csv
+*.tar.gz
+.DS_Store
+data/raw/
+data/qlib_data/
+models/checkpoints/

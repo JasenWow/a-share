@@ -1,0 +1,34 @@
+[project]
+name = "big-a"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "pyqlib>=0.9.7",
+  "torch",
+  "lightgbm>=4.0",
+  "scikit-learn",
+  "pandas",
+  "numpy",
+  "matplotlib",
+  "pyyaml",
+  "loguru",
+  "pytest",
+  "ruff",
+  "jupyter",
+  "nbconvert",
+  "safetensors",
+  "transformers",
+  "huggingface-hub",
+  "einops",
+  "typer",
+  "protobuf>=3.20,<4.0",
+]
+
+# pytest configuration (minimal, project-wide)
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "skip_if_no_data: skip test if Qlib data is not available",
+]
