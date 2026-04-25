@@ -1,0 +1,12 @@
+rolling:
+  start_year: 2010
+  end_year: 2024
+  train_years: 5
+  valid_years: 1
+  test_years: 1
+  step_years: 1
+
+data_config: configs/data/handler_alpha158.yaml
+model_config: configs/model/lightgbm.yaml
+backtest_config: configs/backtest/topk_csi300.yaml
+instruments: csi300

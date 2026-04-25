@@ -1,0 +1,14 @@
+kronos:
+  tokenizer_id: "NeoQuasar/Kronos-Tokenizer-base"
+  model_id: "NeoQuasar/Kronos-base"
+  device: "cpu"
+  lookback: 90
+  pred_len: 10
+  max_context: 512
+  signal_mode: "mean"
+
+inference:
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"
+  instruments: csi300
+  batch_size: 50

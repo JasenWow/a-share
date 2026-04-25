@@ -1,0 +1,19 @@
+# Extends Alpha158 with custom A-share factors.
+# Usage: load_config("configs/data/handler_alpha158.yaml", "configs/data/handler_custom.yaml")
+dataset:
+  class: DatasetH
+  module_path: qlib.data.dataset
+  kwargs:
+    handler:
+      kwargs:
+        infer_processors:
+          - class: ProcessInf
+          - class: ZScoreNorm
+            kwargs:
+              fields_group: feature
+              outbound_req: true
+        learn_processors:
+          - class: DropnaLabel
+          - class: CSZScoreNorm
+            kwargs:
+              fields_group: label
