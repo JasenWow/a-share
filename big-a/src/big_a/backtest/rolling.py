@@ -133,7 +133,7 @@ class RollingBacktester:
 
     def __init__(
         self,
-        model_type: Literal["lightgbm", "kronos"] = "lightgbm",
+        model_type: Literal["lightgbm", "kronos", "hedge_fund"] = "lightgbm",
         train_years: int = 5,
         valid_years: int = 1,
         test_years: int = 1,
@@ -233,8 +233,12 @@ class RollingBacktester:
         """Run a single rolling window."""
         if self.model_type == "lightgbm":
             signal = self._run_lightgbm_window(window)
-        else:
+        elif self.model_type == "kronos":
             signal = self._run_kronos_window(window)
+        elif self.model_type == "hedge_fund":
+            signal = self._run_hedge_fund_window(window)
+        else:
+            raise ValueError(f"Unknown model_type: {self.model_type}")
 
         if signal is None or signal.empty:
             logger.warning("Window {} produced no signal", window["window_idx"])
@@ -324,6 +328,43 @@ class RollingBacktester:
 
         logger.info(
             "Window {}: Kronos signal shape={}",
+            window["window_idx"],
+            signal.shape if signal is not None else (0,),
+        )
+        return signal  # type: ignore[return-value]
+
+    def _run_hedge_fund_window(self, window: dict[str, Any]) -> pd.DataFrame | None:
+        """Run hedge fund multi-agent LLM workflow for the window's test period."""
+        from big_a.models.hedge_fund.signal_generator import HedgeFundSignalGenerator
+        from big_a.qlib_config import init_qlib
+
+        init_qlib()
+
+        gen = HedgeFundSignalGenerator()
+
+        # Fetch instrument list from Qlib
+        instruments = self._get_instruments(window["test_start"], window["test_end"])
+
+        # Extend lookback before test start
+        lookback_offset = pd.DateOffset(months=6)
+        data_start = str(
+            (pd.Timestamp(window["test_start"]) - lookback_offset).date()  # type: ignore[operator]
+        )
+
+        signal = gen.generate_signals(
+            instruments=instruments,
+            start_date=data_start,
+            end_date=window["test_end"],
+        )
+        # Filter to only test period dates
+        if not signal.empty:
+            test_dates = signal.index.get_level_values("datetime")
+            signal = signal[
+                (test_dates >= window["test_start"]) & (test_dates <= window["test_end"])
+            ]
+
+        logger.info(
+            "Window {}: HedgeFund signal shape={}",
             window["window_idx"],
             signal.shape if signal is not None else (0,),
         )
@@ -547,7 +588,7 @@ def aggregate_results(results: list[WindowResult]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def run_rolling(
-    model_type: Literal["lightgbm", "kronos"] = "lightgbm",
+    model_type: Literal["lightgbm", "kronos", "hedge_fund"] = "lightgbm",
     config_path: str = "configs/backtest/rolling_csi300.yaml",
 ) -> dict[str, Any]:
     """Run a rolling backtest from a YAML config file.
@@ -555,7 +596,7 @@ def run_rolling(
     Parameters
     ----------
     model_type : str
-        ``"lightgbm"`` or ``"kronos"``.
+        ``"lightgbm"``, ``"kronos"``, or ``"hedge_fund"``.
     config_path : str
         Path to rolling config YAML.
 
