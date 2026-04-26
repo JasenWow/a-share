@@ -371,8 +371,6 @@ class WatchlistScorer:
 
         return raw_sorted
 
-        return raw_copy
-
     def compute_portfolio(
         self,
         scores: pd.DataFrame,
