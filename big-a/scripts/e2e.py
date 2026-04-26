@@ -10,6 +10,8 @@ sys.path.insert(0, str(SRC_DIR))
 import typer
 from loguru import logger
 
+from big_a.experiment import start_experiment, log_params, log_metrics, log_artifact, end_experiment
+
 app = typer.Typer(help="End-to-end pipeline: LightGBM + Kronos model comparison")
 
 
@@ -37,6 +39,8 @@ def main(
 
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        start_experiment("big_a_e2e_pipeline")
 
         model_path = output_dir / "lightgbm_model.pkl"
         preds_path = output_dir / "lightgbm_predictions.parquet"
@@ -70,9 +74,17 @@ def main(
             config = load_config(model_config, data_config)
             dataset = create_dataset(config)
             model = load_model(model_path)
+
+            log_params({
+                "model_type": "lightgbm",
+                "skip_train": skip_train,
+                "model_config": model_config,
+                "data_config": data_config,
+            })
         else:
             logger.info("Step 3/9: Training LightGBM model")
             from big_a.models.lightgbm_model import train as train_lgb, save_model
+            from big_a.config import load_config as _load_config
 
             model, dataset, _config = train_lgb(
                 model_config_path=model_config,
@@ -80,6 +92,14 @@ def main(
             )
             save_model(model, model_path)
             logger.info("Model saved to {}", model_path)
+
+            _model_cfg = _load_config(model_config)
+            log_params({
+                "model_type": "lightgbm",
+                "skip_train": skip_train,
+                "model_config": model_config,
+                "data_config": data_config,
+            })
 
         # ── Step 4: Generate predictions ──────────────────────────────────
         logger.info("Step 4/9: Generating predictions on test segment")
@@ -92,6 +112,8 @@ def main(
         predictions.to_parquet(preds_path)
         logger.info("Predictions saved to {} ({} rows)", preds_path, len(predictions))
 
+        log_metrics({"prediction_count": float(len(predictions))})
+
         # ── Step 5: Run backtest ──────────────────────────────────────────
         logger.info("Step 5/9: Running backtest")
         from big_a.backtest.engine import load_backtest_config, run_backtest
@@ -101,6 +123,29 @@ def main(
         report.to_parquet(report_path)
         logger.info("Backtest report saved to {} ({} days)", report_path, len(report))
 
+        # Persist positions (pickle for full Qlib Position objects, parquet for flat analysis)
+        import pickle
+        positions_pkl_path = output_dir / "positions.pkl"
+        with open(positions_pkl_path, "wb") as f:
+            pickle.dump(_positions, f)
+        logger.info("Positions saved to {}", positions_pkl_path)
+
+        def _flatten_positions(positions: dict) -> __import__("pandas").DataFrame:
+            """Extract holding weights from Qlib Position objects into a DataFrame."""
+            import pandas as _pd
+            rows = []
+            for date, pos in positions.items():
+                for stock, weight in pos.stock_weight.items():
+                    rows.append({"datetime": date, "instrument": stock, "weight": weight})
+            return _pd.DataFrame(rows)
+
+        if _positions:
+            positions_flat_path = output_dir / "positions_flat.parquet"
+            _flat_df = _flatten_positions(_positions)
+            if not _flat_df.empty:
+                _flat_df.to_parquet(positions_flat_path)
+                logger.info("Flat positions saved to {} ({} rows)", positions_flat_path, len(_flat_df))
+
         # ── Step 6: Generate analysis report ──────────────────────────────
         logger.info("Step 6/9: Generating analysis report")
         from big_a.backtest.analysis import analyze_backtest, generate_report, _format_summary
@@ -108,6 +153,15 @@ def main(
         analysis = analyze_backtest(report)
         analysis["_report_df"] = report
         generate_report(analysis, analysis_dir)
+
+        log_metrics({
+            "sharpe_ratio": analysis.get("sharpe_ratio", 0),
+            "annualized_return": analysis.get("annualized_return", 0),
+            "max_drawdown": analysis.get("max_drawdown", 0),
+            "information_ratio": analysis.get("information_ratio", 0),
+            "excess_return": analysis.get("excess_return", 0),
+        })
+        log_artifact(report_path)
 
         # ── Final summary ─────────────────────────────────────────────────
         print()
@@ -200,6 +254,18 @@ def main(
             kronos_report.to_parquet(kronos_report_path)
             logger.info("Kronos backtest saved to {} ({} days)", kronos_report_path, len(kronos_report))
 
+            kronos_positions_pkl_path = output_dir / "kronos_positions.pkl"
+            with open(kronos_positions_pkl_path, "wb") as f:
+                pickle.dump(_kronos_positions, f)
+            logger.info("Kronos positions saved to {}", kronos_positions_pkl_path)
+
+            if _kronos_positions:
+                kronos_flat_path = output_dir / "kronos_positions_flat.parquet"
+                _kflat_df = _flatten_positions(_kronos_positions)
+                if not _kflat_df.empty:
+                    _kflat_df.to_parquet(kronos_flat_path)
+                    logger.info("Kronos flat positions saved to {} ({} rows)", kronos_flat_path, len(_kflat_df))
+
         # ── Step 9: Model comparison ────────────────────────────────────────
         if not skip_kronos:
             logger.info("Step 9/9: Comparing models")
@@ -232,16 +298,26 @@ def main(
             print(_format_summary(kronos_analysis))
             print()
 
+            log_metrics({
+                "kronos_sharpe_ratio": kronos_analysis.get("sharpe_ratio", 0),
+                "kronos_annualized_return": kronos_analysis.get("annualized_return", 0),
+                "kronos_max_drawdown": kronos_analysis.get("max_drawdown", 0),
+            })
+
         # ── Final summary ───────────────────────────────────────────────────
         logger.info("Pipeline complete. Output files:")
         for p in sorted(output_dir.rglob("*")):
             if p.is_file():
                 logger.info("  {}", p.relative_to(output_dir.parent))
 
+        end_experiment("FINISHED")
+
     except typer.Exit:
+        end_experiment("KILLED")
         raise
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")
+        end_experiment("FAILED")
         raise typer.Exit(1)
 
 
