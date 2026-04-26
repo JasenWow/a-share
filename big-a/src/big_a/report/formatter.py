@@ -46,13 +46,16 @@ def _format_pct(value: float) -> Text:
     Parameters
     ----------
     value : float
-        Percentage value.
+        Percentage value. If NaN, returns "—"
 
     Returns
     -------
     Text
         Formatted text with color.
     """
+    import math
+    if math.isnan(value):
+        return Text("—")
     text = f"{value:+.1f}%"
     if value > 0:
         return Text(text, style="green")

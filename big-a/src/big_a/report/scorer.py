@@ -44,6 +44,8 @@ class WatchlistScorer:
         lightgbm_model_config: str = "configs/model/lightgbm.yaml",
         lookback_days: int = 10,
         account: float = 1_000_000,
+        skip_trend: bool = False,
+        skip_lightgbm: bool = False,
     ) -> None:
         """Initialize the scorer.
 
@@ -63,6 +65,10 @@ class WatchlistScorer:
             Number of historical days to analyze.
         account : float
             Simulated portfolio capital.
+        skip_trend : bool
+            If True, skip Kronos rolling trend computation (much faster).
+        skip_lightgbm : bool
+            If True, skip LightGBM scoring (much faster).
         """
         self.watchlist_path = watchlist_path
         self.kronos_config_path = kronos_config_path
@@ -71,6 +77,8 @@ class WatchlistScorer:
         self.lightgbm_model_config = lightgbm_model_config
         self.lookback_days = lookback_days
         self.account = account
+        self.skip_trend = skip_trend
+        self.skip_lightgbm = skip_lightgbm
         self._kronos_config: dict[str, Any] | None = None
 
     def load_watchlist(self) -> dict[str, str]:
@@ -144,13 +152,14 @@ class WatchlistScorer:
         result.columns = ["signal_date", "instrument", "score"]
         result["signal_date"] = pd.to_datetime(result["signal_date"])
 
-        # Get last close prices for percentage calculation
-        market_data = self.fetch_market_data(instruments, n_days=1)
+        market_data = self.fetch_market_data(instruments, n_days=20)
         if not market_data.empty:
             last_date = market_data.index.get_level_values(0)[-1]
-            last_closes = market_data.xs(last_date, level=0)["close"].to_frame("last_close")
-            result = result.merge(last_closes, left_on="instrument", right_index=True, how="left")
+            last_prices = market_data.xs(last_date, level=0)["close"]
+            last_close_map = last_prices.to_dict()
+            result["last_close"] = result["instrument"].map(last_close_map)
             result["score_pct"] = (result["score"] / result["last_close"]) * 100
+            result = result.drop(columns=["last_close"])
         else:
             result["score_pct"] = np.nan
 
@@ -341,15 +350,12 @@ class WatchlistScorer:
             logger.warning("No market data fetched")
             return pd.DataFrame()
 
-        # Strip $ prefix
         raw.columns = [c.lstrip("$") for c in raw.columns]
 
-        # Compute change_pct
-        # Need to shift within each instrument group
-        raw_copy = raw.copy()
-        raw_copy["prev_close"] = raw_copy.groupby(level=1)["close"].shift(1)
-        raw_copy["change_pct"] = ((raw_copy["close"] - raw_copy["prev_close"]) / raw_copy["prev_close"]) * 100
-        raw_copy = raw_copy.drop(columns=["prev_close"])
+        raw_sorted = raw.swaplevel(0, 1).sort_index()
+        raw_sorted["change_pct"] = raw_sorted.groupby(level=1)["close"].pct_change() * 100
+
+        return raw_sorted
 
         return raw_copy
 
@@ -477,19 +483,29 @@ class WatchlistScorer:
 
         logger.info("Scoring {} instruments with Kronos and LightGBM", len(instruments))
 
-        # Run scoring
         kronos_scores = self.score_kronos(instruments)
-        kronos_trend = self.score_kronos_rolling(instruments, n_days=self.lookback_days)
-        lightgbm_scores = self.score_lightgbm(instruments)
-
-        # Filter lightgbm to last n_days for trend
-        from qlib.data import D
-        calendar = D.calendar(freq="day")
-        if len(calendar) >= self.lookback_days:
-            cutoff_date = calendar[-self.lookback_days]
-            lightgbm_trend = lightgbm_scores[lightgbm_scores["date"] >= pd.Timestamp(cutoff_date)].copy()
+        if self.skip_trend:
+            kronos_trend = pd.DataFrame()
+            logger.info("Skipping Kronos rolling trend (skip_trend=True)")
         else:
-            lightgbm_trend = lightgbm_scores.copy()
+            kronos_trend = self.score_kronos_rolling(instruments, n_days=self.lookback_days)
+
+        if self.skip_lightgbm:
+            lightgbm_scores = pd.DataFrame()
+            logger.info("Skipping LightGBM scoring (skip_lightgbm=True)")
+        else:
+            lightgbm_scores = self.score_lightgbm(instruments)
+
+        if not lightgbm_scores.empty:
+            from qlib.data import D
+            calendar = D.calendar(freq="day")
+            if len(calendar) >= self.lookback_days:
+                cutoff_date = calendar[-self.lookback_days]
+                lightgbm_trend = lightgbm_scores[lightgbm_scores["date"] >= pd.Timestamp(cutoff_date)].copy()
+            else:
+                lightgbm_trend = lightgbm_scores.copy()
+        else:
+            lightgbm_trend = pd.DataFrame()
 
         # Fetch market data
         market_data = self.fetch_market_data(instruments, n_days=self.lookback_days)

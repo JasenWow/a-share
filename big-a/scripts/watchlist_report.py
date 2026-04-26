@@ -19,11 +19,12 @@ app = typer.Typer(help="自选股分析报告 - 打分、趋势、模拟持仓")
 def report(
     watchlist: str = typer.Option("configs/watchlist.yaml", "--watchlist", "-w", help="自选股配置文件路径"),
     account: float = typer.Option(1_000_000, "--account", "-a", help="模拟持仓资金"),
-    model: str = typer.Option("all", "--model", "-m", help="使用的模型: all, kronos, lightgbm"),
+    model: str = typer.Option("kronos", "--model", "-m", help="使用的模型: all, kronos, lightgbm"),
     no_portfolio: bool = typer.Option(False, "--no-portfolio", help="不显示模拟持仓"),
     output: Path = typer.Option(None, "--output", "-o", help="保存报告到文件 (txt)"),
     local_only: bool = typer.Option(True, "--local-only", help="仅使用本地缓存的Kronos模型"),
-    lookback_days: int = typer.Option(10, "--lookback", "-l", help="历史趋势天数"),
+    lookback_days: int = typer.Option(5, "--lookback", "-l", help="历史趋势天数 (Kronos滚动推理较慢)"),
+    skip_trend: bool = typer.Option(False, "--skip-trend", help="跳过Kronos滚动打分 (大幅加速)"),
 ) -> None:
     """Generate full watchlist scoring report with trends and portfolio simulation."""
     from big_a.report.scorer import WatchlistScorer
@@ -42,6 +43,8 @@ def report(
             watchlist_path=watchlist,
             lookback_days=lookback_days,
             account=account,
+            skip_trend=skip_trend,
+            skip_lightgbm=(model == "kronos"),
         )
 
         results = scorer.run()
@@ -62,13 +65,6 @@ def report(
             console.print("  1. Qlib数据是否已安装 (python big-a/scripts/update_data.py)")
             console.print("  2. 模型文件是否存在 (Kronos: ~/.cache/huggingface, LightGBM: output/lightgbm_model.pkl)")
             raise typer.Exit(1)
-
-        if model == "kronos":
-            results["lightgbm_scores"] = pd.DataFrame()
-            results["lightgbm_trend"] = pd.DataFrame()
-        elif model == "lightgbm":
-            results["kronos_scores"] = pd.DataFrame()
-            results["kronos_trend"] = pd.DataFrame()
 
         if no_portfolio:
             results["portfolio"] = pd.DataFrame()
@@ -99,7 +95,7 @@ def report(
 @app.command()
 def score(
     watchlist: str = typer.Option("configs/watchlist.yaml", "--watchlist", "-w", help="自选股配置文件路径"),
-    model: str = typer.Option("all", "--model", "-m", help="使用的模型: all, kronos, lightgbm"),
+    model: str = typer.Option("kronos", "--model", "-m", help="使用的模型: all, kronos, lightgbm"),
     local_only: bool = typer.Option(True, "--local-only", help="仅使用本地缓存的Kronos模型"),
 ) -> None:
     """Quick scoring only, no full report."""
