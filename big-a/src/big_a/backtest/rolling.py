@@ -12,6 +12,7 @@ import pandas as pd
 from loguru import logger
 
 from big_a.config import PROJECT_ROOT, load_config
+from big_a.experiment import end_experiment, log_metrics as _log_m, start_experiment
 
 
 # ---------------------------------------------------------------------------
@@ -173,36 +174,56 @@ class RollingBacktester:
         list of WindowResult
             Per-window results with metrics and optional report/signal.
         """
-        cfg = self._resolve_config(config)
-        bt_cfg = self._load_backtest_config()
+        start_experiment(f"big_a_rolling_{self.model_type}")
 
-        windows = generate_windows(
-            start_year=self.start_year,
-            end_year=self.end_year,
-            train_years=self.train_years,
-            valid_years=self.valid_years,
-            test_years=self.test_years,
-            step_years=self.step_years,
-        )
+        try:
+            cfg = self._resolve_config(config)
+            bt_cfg = self._load_backtest_config()
 
-        if not windows:
-            logger.warning("No valid windows generated")
-            return []
-
-        results: list[WindowResult] = []
-        for w in windows:
-            logger.info(
-                "=== Window {}: test=[{}, {}] ===",
-                w["window_idx"],
-                w["test_start"],
-                w["test_end"],
+            windows = generate_windows(
+                start_year=self.start_year,
+                end_year=self.end_year,
+                train_years=self.train_years,
+                valid_years=self.valid_years,
+                test_years=self.test_years,
+                step_years=self.step_years,
             )
-            result = self._run_window(w, bt_cfg)
-            results.append(result)
-            self._log_window_result(result)
 
-        logger.info("Rolling backtest complete: {} windows", len(results))
-        return results
+            if not windows:
+                logger.warning("No valid windows generated")
+                return []
+
+            results: list[WindowResult] = []
+            for w in windows:
+                logger.info(
+                    "=== Window {}: test=[{}, {}] ===",
+                    w["window_idx"],
+                    w["test_start"],
+                    w["test_end"],
+                )
+                result = self._run_window(w, bt_cfg)
+                results.append(result)
+                self._log_window_result(result)
+
+                _log_m({
+                    f"window_{result.window_idx}_ic": result.ic if result.ic is not None else float('nan'),
+                    f"window_{result.window_idx}_rank_ic": result.rank_ic if result.rank_ic is not None else float('nan'),
+                    f"window_{result.window_idx}_sharpe": result.sharpe if result.sharpe is not None else float('nan'),
+                    f"window_{result.window_idx}_max_drawdown": result.max_drawdown if result.max_drawdown is not None else float('nan'),
+                })
+
+            agg = aggregate_results(results)
+            _log_m({
+                "mean_ic": agg.get("mean_ic", float('nan')),
+                "mean_rank_ic": agg.get("mean_rank_ic", float('nan')),
+                "mean_sharpe": agg.get("mean_sharpe", float('nan')),
+                "mean_max_drawdown": agg.get("mean_max_drawdown", float('nan')),
+            })
+
+            logger.info("Rolling backtest complete: {} windows", len(results))
+            return results
+        finally:
+            end_experiment("FINISHED")
 
     # ------------------------------------------------------------------
     # Per-window execution
