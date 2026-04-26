@@ -1,0 +1,26 @@
+strategy:
+  class: RealTradingStrategy
+  module_path: big_a.strategy.real_trading
+  kwargs:
+    signal: <PRED>
+    topk: 5
+    n_drop: 1
+    risk_degree: 0.95
+
+risk_controls:
+  stop_loss: -0.08
+  max_weight: 0.25
+  rebalance_freq: 5
+
+backtest:
+  start_time: "2022-01-01"
+  end_time: "2024-12-31"
+  account: 1000000
+  benchmark: SH000300
+  exchange_kwargs:
+    freq: day
+    limit_threshold: 0.095
+    deal_price: close
+    open_cost: 0.0005
+    close_cost: 0.0015
+    min_cost: 5

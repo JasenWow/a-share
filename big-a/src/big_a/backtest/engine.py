@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 from loguru import logger
+from qlib.strategy.base import BaseStrategy
 
 # A-share default exchange parameters
 DEFAULT_EXCHANGE_KWARGS: dict[str, Any] = {
@@ -79,6 +80,59 @@ def run_backtest(
     )
 
     strategy = TopkDropoutStrategy(signal=signal, topk=topk, n_drop=n_drop)
+
+    report, positions = backtest_daily(
+        start_time=start_time,
+        end_time=end_time,
+        strategy=strategy,
+        account=account,
+        benchmark=benchmark,
+        exchange_kwargs=exchange_kwargs,
+    )
+    logger.info(f"Backtest complete: {len(report)} trading days")
+    return report, positions
+
+
+def run_backtest_with_strategy(
+    strategy: BaseStrategy,
+    config: dict[str, Any] | None = None,
+) -> tuple[pd.DataFrame, dict]:
+    """Run backtest with a pre-built strategy instance.
+
+    Unlike run_backtest() which hardcodes TopkDropoutStrategy,
+    this function accepts any BaseStrategy subclass (e.g. RealTradingStrategy).
+
+    Parameters
+    ----------
+    strategy : BaseStrategy
+        A configured strategy instance (e.g. RealTradingStrategy).
+    config : dict, optional
+        Config dict with backtest parameters (start_time, end_time, account, etc.).
+        If None, uses defaults.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, dict]
+        - report: DataFrame with columns [return, bench, cost, turnover]
+        - positions: dict mapping datetime -> Position object
+    """
+    from qlib.contrib.evaluate import backtest_daily
+
+    cfg = config or {}
+    bt_cfg = cfg.get("backtest", {})
+
+    start_time = bt_cfg.get("start_time")
+    end_time = bt_cfg.get("end_time")
+
+    account = bt_cfg.get("account", DEFAULT_BACKTEST_KWARGS["account"])
+    benchmark = bt_cfg.get("benchmark", DEFAULT_BACKTEST_KWARGS["benchmark"])
+
+    exchange_kwargs = {**DEFAULT_EXCHANGE_KWARGS, **bt_cfg.get("exchange_kwargs", {})}
+
+    logger.info(
+        f"Running backtest with custom strategy: {start_time} -> {end_time}, "
+        f"account={account}, benchmark={benchmark}"
+    )
 
     report, positions = backtest_daily(
         start_time=start_time,
