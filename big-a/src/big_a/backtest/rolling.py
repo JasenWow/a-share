@@ -366,14 +366,36 @@ class RollingBacktester:
         except Exception as exc:
             logger.debug("Sharpe/drawdown computation failed: {}", exc)
 
-        # IC from signal vs report benchmark
         try:
-            if not signal.empty and "return" in report.columns:
-                # Build a simple actual-return proxy from report
-                # For proper IC, use dataset labels; here we compute from available data
-                metrics["ic"] = 0.0  # placeholder — real IC needs label data
-                metrics["rank_ic"] = 0.0
-                metrics["icir"] = 0.0
+            if not signal.empty:
+                from qlib.data import D
+
+                instruments = D.instruments(self.instruments)
+                inst_list = D.list_instruments(
+                    instruments=instruments,
+                    start_time=window["test_start"],
+                    end_time=window["test_end"],
+                    as_list=True,
+                )
+
+                label_expr = ["Ref($close, -2) / Ref($close, -1) - 1"]
+                actual_returns = D.features(
+                    inst_list,
+                    fields=label_expr,
+                    start_time=window["test_start"],
+                    end_time=window["test_end"],
+                )
+                actual_returns.columns = ["score"]
+
+                ic_series = calc_ic(signal, actual_returns)
+                rank_ic_series = calc_rank_ic(signal, actual_returns)
+
+                if len(ic_series) > 0:
+                    metrics["ic"] = float(ic_series.mean())
+                if len(rank_ic_series) > 0:
+                    metrics["rank_ic"] = float(rank_ic_series.mean())
+                if len(ic_series) > 1:
+                    metrics["icir"] = calc_icir(ic_series)
         except Exception as exc:
             logger.debug("IC computation skipped: {}", exc)
 
