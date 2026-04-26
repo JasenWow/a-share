@@ -175,7 +175,7 @@ def end_experiment(status: str = "FINISHED") -> None:
         RuntimeError: If ending the recorder fails.
     """
     try:
-        R.end_recorder()
+        R.end_exp()
         logger.info(f"Ended experiment with status: {status}")
     except Exception as e:
         logger.error(f"Failed to end experiment: {e}")

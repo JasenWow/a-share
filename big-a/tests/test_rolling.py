@@ -171,8 +171,11 @@ class TestRollingBacktester:
         assert rb.train_years == 3
         assert rb.start_year == 2015
 
+    @patch("big_a.backtest.rolling.end_experiment")
+    @patch("big_a.backtest.rolling.start_experiment")
+    @patch("big_a.backtest.rolling._log_m")
     @patch("big_a.backtest.rolling.RollingBacktester._run_window")
-    def test_run_rolling_returns_window_results(self, mock_run, sample_window_results):
+    def test_run_rolling_returns_window_results(self, mock_run, mock_log, mock_start, mock_end, sample_window_results):
         mock_run.side_effect = sample_window_results
 
         rb = RollingBacktester(start_year=2010, end_year=2017)
@@ -181,8 +184,11 @@ class TestRollingBacktester:
         assert len(results) == len(sample_window_results)
         assert all(isinstance(r, WindowResult) for r in results)
 
+    @patch("big_a.backtest.rolling.end_experiment")
+    @patch("big_a.backtest.rolling.start_experiment")
+    @patch("big_a.backtest.rolling._log_m")
     @patch("big_a.backtest.rolling.RollingBacktester._run_window")
-    def test_run_rolling_empty_windows(self, mock_run):
+    def test_run_rolling_empty_windows(self, mock_run, mock_log, mock_start, mock_end):
         rb = RollingBacktester(start_year=2020, end_year=2022, train_years=5)
         results = rb.run_rolling()
         assert results == []

@@ -4,6 +4,7 @@ from __future__ import annotations
 import pandas as pd
 from loguru import logger
 from qlib.data.dataset import DatasetH
+from qlib.data.dataset.handler import DataHandlerLP
 
 from big_a.config import load_config
 from big_a.qlib_config import init_qlib
@@ -54,7 +55,7 @@ def get_segment_data(
     -------
     pd.DataFrame
     """
-    df = dataset.prepare(segment, col_set=col_set, data_key=DatasetH.DK_L)
+    df = dataset.prepare(segment, col_set=col_set, data_key=DataHandlerLP.DK_L)
     return df
 
 
