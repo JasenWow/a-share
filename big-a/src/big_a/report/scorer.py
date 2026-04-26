@@ -22,6 +22,20 @@ from big_a.models.kronos import KronosSignalGenerator
 from big_a.models.lightgbm_model import load_model, create_dataset, predict_to_dataframe
 
 
+def _convert_market_units(df: pd.DataFrame) -> pd.DataFrame:
+    result = df.copy()
+
+    result["close_raw"] = result["close"] / result["factor"].replace(0, np.nan)
+    result["open_raw"] = result["open"] / result["factor"].replace(0, np.nan)
+    result["high_raw"] = result["high"] / result["factor"].replace(0, np.nan)
+    result["low_raw"] = result["low"] / result["factor"].replace(0, np.nan)
+
+    result["volume_shares"] = result["volume"] * result["factor"] * 100
+    result["amount_yuan"] = result["amount"] * 1000
+
+    return result
+
+
 class WatchlistScorer:
     """Multi-model scoring engine for watchlist stocks.
 
@@ -338,7 +352,7 @@ class WatchlistScorer:
         start_date = calendar[-n_days]
         end_date = calendar[-1]
 
-        fields = ["$open", "$high", "$low", "$close", "$volume", "$amount"]
+        fields = ["$open", "$high", "$low", "$close", "$volume", "$amount", "$factor"]
         raw = D.features(
             instruments,
             fields=fields,
@@ -423,7 +437,8 @@ class WatchlistScorer:
         if not market_data.empty:
             last_date = market_data.index.get_level_values(0)[-1]
             last_prices = market_data.xs(last_date, level=0)["close"]
-            selected["entry_price"] = selected["instrument"].map(last_prices)
+            last_factors = market_data.xs(last_date, level=0)["factor"]
+            selected["entry_price"] = selected["instrument"].map(last_prices) / selected["instrument"].map(last_factors)
         else:
             selected["entry_price"] = np.nan
 

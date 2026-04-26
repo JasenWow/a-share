@@ -67,6 +67,7 @@ def sample_market_data():
         "volume": np.random.uniform(1e6, 1e7, n),
         "amount": np.random.uniform(1e8, 1e9, n),
         "change_pct": np.random.uniform(-5, 5, n),
+        "factor": np.ones(n),
     }, index=idx)
 
 
@@ -377,6 +378,7 @@ class TestWatchlistScorerComputePortfolio:
         with patch.object(WatchlistScorer, "fetch_market_data") as mock_fetch:
             market_df = pd.DataFrame({
                 "close": [45.20, 32.50, 28.30],
+                "factor": [1.0, 1.0, 1.0],
             }, index=pd.MultiIndex.from_product([
                 [pd.Timestamp("2024-12-31")],
                 ["SH688256", "SZ300476", "SZ001309"],
@@ -403,6 +405,7 @@ class TestWatchlistScorerComputePortfolio:
         with patch.object(WatchlistScorer, "fetch_market_data") as mock_fetch:
             market_df = pd.DataFrame({
                 "close": [45.20, 32.50, 28.30],
+                "factor": [1.0, 1.0, 1.0],
             }, index=pd.MultiIndex.from_product([
                 [pd.Timestamp("2024-12-31")],
                 ["SH688256", "SZ300476", "SZ001309"],
@@ -427,6 +430,7 @@ class TestWatchlistScorerComputePortfolio:
         with patch.object(WatchlistScorer, "fetch_market_data") as mock_fetch:
             market_df = pd.DataFrame({
                 "close": [45.20, 32.50, 28.30],
+                "factor": [1.0, 1.0, 1.0],
             }, index=pd.MultiIndex.from_product([
                 [pd.Timestamp("2024-12-31")],
                 ["SH688256", "SZ300476", "SZ001309"],
@@ -452,6 +456,7 @@ class TestWatchlistScorerComputePortfolio:
         with patch.object(WatchlistScorer, "fetch_market_data") as mock_fetch:
             market_df = pd.DataFrame({
                 "close": [45.20, 32.50],
+                "factor": [1.0, 1.0],
             }, index=pd.MultiIndex.from_product([
                 [pd.Timestamp("2024-12-31")],
                 ["SH688256", "SZ300476"],
@@ -845,3 +850,53 @@ class TestFormatterHelpers:
         result = _get_signal_label(-0.8)
         assert "强烈看跌" in result.plain
         assert "red" in str(result.style)
+
+
+class TestConvertMarketUnits:
+    """Tests for _convert_market_units helper function."""
+
+    def test_convert_market_units(self):
+        """Test conversion from Qlib units to market units."""
+        from big_a.report.scorer import _convert_market_units
+
+        df = pd.DataFrame({
+            "close": [50.0],
+            "open": [49.0],
+            "high": [51.0],
+            "low": [48.0],
+            "factor": [0.5],
+            "volume": [1000.0],
+            "amount": [5000.0],
+            "change_pct": [1.5],
+        })
+
+        result = _convert_market_units(df)
+
+        assert result.loc[0, "close_raw"] == 100.0
+        assert result.loc[0, "open_raw"] == 98.0
+        assert result.loc[0, "high_raw"] == 102.0
+        assert result.loc[0, "low_raw"] == 96.0
+        assert result.loc[0, "amount_yuan"] == 5_000_000.0
+        assert result.loc[0, "volume_shares"] == 50_000.0
+
+        assert result.loc[0, "close"] == 50.0
+        assert result.loc[0, "factor"] == 0.5
+        assert result.loc[0, "volume"] == 1000.0
+
+
+class TestFormatVolume:
+    """Tests for _format_volume helper function."""
+
+    @pytest.mark.parametrize("value,expected", [
+        (1e8, "1.0亿股"),
+        (5.5e8, "5.5亿股"),
+        (1e4, "1.0万股"),
+        (5.5e4, "5.5万股"),
+        (999, "999股"),
+    ])
+    def test_format_volume(self, value, expected):
+        """Test volume formatting for 亿股, 万股, 股 ranges."""
+        from big_a.report.formatter import _format_volume
+
+        result = _format_volume(value)
+        assert result == expected

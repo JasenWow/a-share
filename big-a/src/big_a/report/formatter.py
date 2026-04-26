@@ -84,6 +84,15 @@ def _format_amount(value: float) -> str:
     return f"¥{value:,.0f}"
 
 
+def _format_volume(value: float) -> str:
+    """Format volume in shares with smart unit."""
+    if value >= 1e8:
+        return f"{value/1e8:.1f}亿股"
+    elif value >= 1e4:
+        return f"{value/1e4:.1f}万股"
+    return f"{value:,.0f}股"
+
+
 def _get_signal_label(score: float) -> Text:
     """Get signal label with emoji and color.
 
@@ -264,6 +273,10 @@ def format_market_data(results: dict[str, Any], console: Console) -> None:
         console.print("[yellow]暂无行情数据[/yellow]")
         return
 
+    from big_a.report.scorer import _convert_market_units
+    if "factor" in market_data.columns:
+        market_data = _convert_market_units(market_data)
+
     for instrument, name in watchlist.items():
         try:
             stock_data = market_data.xs(instrument, level=1)
@@ -288,16 +301,18 @@ def format_market_data(results: dict[str, Any], console: Console) -> None:
         table.add_column("最高", justify="right", width=10)
         table.add_column("最低", justify="right", width=10)
         table.add_column("成交额", justify="right", width=12)
+        table.add_column("成交量", justify="right", width=12)
         table.add_column("涨跌幅", justify="right", width=10)
 
         for date, row in stock_data.iterrows():
             table.add_row(
                 date.strftime("%m-%d"),
-                f"{row['open']:.2f}",
-                f"{row['close']:.2f}",
-                f"{row['high']:.2f}",
-                f"{row['low']:.2f}",
-                _format_amount(row['amount']),
+                f"{row['open_raw']:.2f}",
+                f"{row['close_raw']:.2f}",
+                f"{row['high_raw']:.2f}",
+                f"{row['low_raw']:.2f}",
+                _format_amount(row['amount_yuan']),
+                _format_volume(row['volume_shares']),
                 _format_pct(row['change_pct']),
             )
 
