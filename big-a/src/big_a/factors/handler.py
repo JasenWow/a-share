@@ -54,7 +54,7 @@ def get_segment_data(
     -------
     pd.DataFrame
     """
-    df = dataset.prepare(segment, col_set=col_set, data_key=dataset.DK_L)
+    df = dataset.prepare(segment, col_set=col_set, data_key=DatasetH.DK_L)
     return df
 
 
