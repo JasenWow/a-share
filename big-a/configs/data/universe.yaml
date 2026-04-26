@@ -1,0 +1,13 @@
+# 股票池配置
+universe:
+  # 基础池: csi300 / csi500 / csi800 / csi1000 / all
+  base_pool: csi300
+
+  # 自选股文件路径 (相对于 big-a/ 目录)
+  watchlist: configs/watchlist.yaml
+
+  # 板块轮动配置
+  sector_rotation:
+    enabled: true
+    lookback_days: 20         # 动量回看天数
+    top_k_sectors: 5          # 选择前K个强势板块
