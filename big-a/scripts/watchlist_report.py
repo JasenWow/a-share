@@ -130,13 +130,14 @@ def score(
             "lightgbm_scores": pd.DataFrame(),
         }
 
-        if model in ["all", "kronos"]:
-            logger.info("Scoring with Kronos...")
-            results["kronos_scores"] = scorer.score_kronos(instruments)
-
+        # LightGBM must run before Kronos to avoid torch + pickle.load deadlock
         if model in ["all", "lightgbm"]:
             logger.info("Scoring with LightGBM...")
             results["lightgbm_scores"] = scorer.score_lightgbm(instruments)
+
+        if model in ["all", "kronos"]:
+            logger.info("Scoring with Kronos...")
+            results["kronos_scores"] = scorer.score_kronos(instruments)
 
         format_scores_table(results, console)
 

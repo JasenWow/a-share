@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 from big_a.config import load_config, PROJECT_ROOT
 from big_a.data.screener import load_watchlist
 from big_a.qlib_config import init_qlib
-from big_a.models.kronos import KronosSignalGenerator
 from big_a.models.lightgbm_model import load_model, create_dataset, predict_to_dataframe
 
 
@@ -137,6 +136,7 @@ class WatchlistScorer:
         """
         cfg = self._load_kronos_config()
 
+        from big_a.models.kronos import KronosSignalGenerator
         gen = KronosSignalGenerator(
             tokenizer_id=cfg.get("tokenizer_id", "NeoQuasar/Kronos-Tokenizer-base"),
             model_id=cfg.get("model_id", "NeoQuasar/Kronos-base"),
@@ -149,7 +149,6 @@ class WatchlistScorer:
 
         gen.load_model(local_files_only=True)
 
-        # Load data for the last lookback + buffer days
         from qlib.data import D
         calendar = D.calendar(freq="day")
         end_date = calendar[-1]
@@ -197,6 +196,7 @@ class WatchlistScorer:
         cfg = self._load_kronos_config()
         lookback = cfg.get("lookback", 90)
 
+        from big_a.models.kronos import KronosSignalGenerator
         gen = KronosSignalGenerator(
             tokenizer_id=cfg.get("tokenizer_id", "NeoQuasar/Kronos-Tokenizer-base"),
             model_id=cfg.get("model_id", "NeoQuasar/Kronos-base"),
@@ -297,15 +297,24 @@ class WatchlistScorer:
             logger.error("LightGBM model not found at {}", model_path)
             return pd.DataFrame(columns=["date", "instrument", "score"])
 
+        model_path = PROJECT_ROOT / self.lightgbm_model_path
+        if not model_path.exists():
+            logger.error("LightGBM model not found at {}", model_path)
+            return pd.DataFrame(columns=["date", "instrument", "score"])
+
         model = load_model(model_path)
 
-        # Load and modify config
         config = load_config(self.lightgbm_model_config, self.lightgbm_data_config)
 
-        # Override instruments in the handler config
-        config["dataset"]["kwargs"]["handler"]["kwargs"]["instruments"] = instruments
+        handler_kwargs = config["dataset"]["kwargs"]["handler"]["kwargs"]
+        handler_kwargs["instruments"] = instruments
 
-        # Create dataset and predict
+        from qlib.data import D
+        calendar = D.calendar(freq="day")
+        latest_date = str(calendar[-1].date()) if len(calendar) > 0 else "2024-12-31"
+        handler_kwargs["end_time"] = latest_date
+        config["dataset"]["kwargs"]["segments"]["test"][1] = latest_date
+
         dataset = create_dataset(config)
         preds = predict_to_dataframe(model, dataset, segment="test")
 
@@ -317,9 +326,7 @@ class WatchlistScorer:
         result = preds.reset_index()
         result.columns = ["date", "instrument", "score"]
 
-        # Filter to last n_days
-        from qlib.data import D
-        calendar = D.calendar(freq="day")
+        # Filter to last n_days (reuse D and calendar from above)
         if len(calendar) >= self.lookback_days:
             cutoff_date = calendar[-self.lookback_days]
             result = result[result["date"] >= pd.Timestamp(cutoff_date)]
@@ -496,18 +503,19 @@ class WatchlistScorer:
 
         logger.info("Scoring {} instruments with Kronos and LightGBM", len(instruments))
 
+        # LightGBM must run before Kronos to avoid torch + pickle.load deadlock
+        if self.skip_lightgbm:
+            lightgbm_scores = pd.DataFrame()
+            logger.info("Skipping LightGBM scoring (skip_lightgbm=True)")
+        else:
+            lightgbm_scores = self.score_lightgbm(instruments)
+
         kronos_scores = self.score_kronos(instruments)
         if self.skip_trend:
             kronos_trend = pd.DataFrame()
             logger.info("Skipping Kronos rolling trend (skip_trend=True)")
         else:
             kronos_trend = self.score_kronos_rolling(instruments, n_days=self.lookback_days)
-
-        if self.skip_lightgbm:
-            lightgbm_scores = pd.DataFrame()
-            logger.info("Skipping LightGBM scoring (skip_lightgbm=True)")
-        else:
-            lightgbm_scores = self.score_lightgbm(instruments)
 
         if not lightgbm_scores.empty:
             from qlib.data import D
