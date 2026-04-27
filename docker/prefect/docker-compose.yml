@@ -1,0 +1,37 @@
+services:
+  prefect-server:
+    image: prefecthq/prefect:3-latest
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "4200:4200"
+    volumes:
+      - prefect-db:/root/.prefect
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4200/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  prefect-worker:
+    build:
+      context: ../..
+      dockerfile: docker/prefect/Dockerfile
+    command:
+      - python
+      - -c
+      - "import os; from big_a.scheduler.flows import daily_pipeline; daily_pipeline.serve(cron=os.environ.get('CRON_SCHEDULE', '0 19 * * 1-5'))"
+    environment:
+      PREFECT_API_URL: http://prefect-server:4200/api
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      ALL_PROXY: ${ALL_PROXY:-}
+      CRON_SCHEDULE: ${CRON_SCHEDULE:-0 19 * * 1-5}
+    volumes:
+      - ../../big-a/data:/app/big-a/data
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+
+volumes:
+  prefect-db:
