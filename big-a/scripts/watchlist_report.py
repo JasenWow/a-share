@@ -25,6 +25,7 @@ def report(
     local_only: bool = typer.Option(True, "--local-only", help="仅使用本地缓存的Kronos模型"),
     lookback_days: int = typer.Option(5, "--lookback", "-l", help="历史趋势天数 (Kronos滚动推理较慢)"),
     skip_trend: bool = typer.Option(False, "--skip-trend", help="跳过Kronos滚动打分 (大幅加速)"),
+    qualitative: bool = typer.Option(False, "--qualitative", "-q", help="启用 AI 定性分析 (多Agent工作流)"),
 ) -> None:
     """Generate full watchlist scoring report with trends and portfolio simulation."""
     from big_a.report.scorer import WatchlistScorer
@@ -39,12 +40,20 @@ def report(
         logger.info("Model: {}", model)
         logger.info("Lookback days: {}", lookback_days)
 
+        if qualitative:
+            import os
+            if not os.environ.get("OPENROUTER_API_KEY"):
+                console.print("[red]启用定性分析需要设置 OPENROUTER_API_KEY 环境变量[/red]")
+                console.print("[yellow]请参考 .env.example 配置 API key[/yellow]")
+                raise typer.Exit(1)
+
         scorer = WatchlistScorer(
             watchlist_path=watchlist,
             lookback_days=lookback_days,
             account=account,
             skip_trend=skip_trend,
             skip_lightgbm=(model == "kronos"),
+            qualitative=qualitative,
         )
 
         results = scorer.run()
