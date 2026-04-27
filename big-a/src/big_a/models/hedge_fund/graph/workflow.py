@@ -23,6 +23,28 @@ from big_a.models.hedge_fund.agents.aswath_damodaran import aswath_damodaran_age
 from big_a.models.hedge_fund.agents.risk_manager import risk_manager_agent
 from big_a.models.hedge_fund.agents.portfolio_manager import portfolio_manager_agent
 
+SLIM_AGENTS = [
+    technicals_agent,
+    valuation_agent,
+    warren_buffett_agent,
+]
+
+FULL_AGENTS = [
+    technicals_agent,
+    valuation_agent,
+    sentiment_agent,
+    warren_buffett_agent,
+    charlie_munger_agent,
+    peter_lynch_agent,
+    ben_graham_agent,
+    phil_fisher_agent,
+    bill_ackman_agent,
+    michael_burry_agent,
+    nassim_taleb_agent,
+    cathie_wood_agent,
+    aswath_damodaran_agent,
+]
+
 
 def _start_node(state: HedgeFundState) -> HedgeFundState:
     return state
@@ -31,6 +53,7 @@ def _start_node(state: HedgeFundState) -> HedgeFundState:
 def create_workflow(
     agent_list: list[Any] | None = None,
     config: dict[str, Any] | None = None,
+    mode: str = "slim",
 ) -> Any:
     """Create the LangGraph workflow with fan-out/fan-in pattern.
 
@@ -40,9 +63,11 @@ def create_workflow(
     ----------
     agent_list : list of agent functions or None
         List of agent functions to include as parallel nodes.
-        If None, uses default agents (technicals, valuation, sentiment, 10 investors).
+        If None, uses mode to determine agents.
     config : dict or None
         Configuration dict (unused in workflow creation, passed to agents at runtime).
+    mode : str
+        "slim" for 3 analysts (default) or "full" for all 13.
 
     Returns
     -------
@@ -50,21 +75,9 @@ def create_workflow(
         Compiled LangGraph workflow ready for execution.
     """
     if agent_list is None:
-        agent_list = [
-            technicals_agent,
-            valuation_agent,
-            sentiment_agent,
-            warren_buffett_agent,
-            charlie_munger_agent,
-            peter_lynch_agent,
-            ben_graham_agent,
-            phil_fisher_agent,
-            bill_ackman_agent,
-            michael_burry_agent,
-            nassim_taleb_agent,
-            cathie_wood_agent,
-            aswath_damodaran_agent,
-        ]
+        cfg = config or {}
+        effective_mode = cfg.get("mode", mode)
+        agent_list = SLIM_AGENTS if effective_mode == "slim" else FULL_AGENTS
 
     workflow = StateGraph(HedgeFundState)
 

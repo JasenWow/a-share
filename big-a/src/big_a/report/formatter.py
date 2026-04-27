@@ -116,6 +116,73 @@ def _get_signal_label(score: float) -> Text:
         return Text("🔴 强烈看跌", style="red")
 
 
+def format_qualitative_analysis(results: dict[str, Any], console: Console) -> None:
+    """Print the AI qualitative analysis section.
+
+    Only renders when results contains non-empty hedge_fund_analysis.
+    """
+    hedge_fund = results.get("hedge_fund_analysis", {})
+    if not hedge_fund or not hedge_fund.get("details"):
+        return
+
+    details = hedge_fund["details"]
+    watchlist = results.get("watchlist", {})
+
+    header = Panel(
+        Text("🤖 AI 定性分析", style="bold white"),
+        border_style="bright_blue",
+    )
+    console.print(header)
+    console.print()
+
+    AGENT_NAMES = {
+        "technicals_agent": "📊 技术分析",
+        "valuation_agent": "💰 估值分析",
+        "warren_buffett_agent": "🏦 巴菲特",
+        "risk_manager_agent": "⚠️ 风控",
+        "portfolio_manager_agent": "📋 投资组合",
+    }
+
+    for instrument, agent_data in details.items():
+        name = watchlist.get(instrument, instrument)
+        lines = []
+
+        for agent_name, signal_data in agent_data.items():
+            display_name = AGENT_NAMES.get(agent_name, agent_name.replace("_agent", "").replace("_", " ").title())
+            signal = signal_data.get("signal", "neutral")
+            confidence = signal_data.get("confidence", 0.0)
+            reasoning = signal_data.get("reasoning", "")
+
+            if signal == "bullish":
+                signal_icon = "🟢 看涨"
+            elif signal == "bearish":
+                signal_icon = "🔴 看跌"
+            else:
+                signal_icon = "⚪ 中性"
+
+            conf_pct = int(confidence * 100)
+            bar_filled = int(confidence * 10)
+            bar_empty = 10 - bar_filled
+            conf_bar = "█" * bar_filled + "░" * bar_empty
+
+            if len(reasoning) > 200:
+                reasoning = reasoning[:197] + "..."
+
+            lines.append(f"[bold]{display_name}[/bold]  {signal_icon}  置信度: {conf_bar} {conf_pct}%")
+            lines.append(f"  {reasoning}")
+            lines.append("")
+
+        panel_text = "\n".join(lines).strip()
+        stock_panel = Panel(
+            Text.from_markup(panel_text),
+            title=f"[{instrument}] {name}",
+            title_align="left",
+            border_style="bright_cyan",
+        )
+        console.print(stock_panel)
+        console.print()
+
+
 def format_scores_table(results: dict[str, Any], console: Console) -> None:
     """Print just the model scores table.
 
@@ -430,6 +497,9 @@ def format_report(results: dict[str, Any], console: Console | None = None) -> No
     )
     console.print(header)
     console.print()
+
+    # [0] AI qualitative analysis (only if available)
+    format_qualitative_analysis(results, console)
 
     format_scores_table(results, console)
     console.print()

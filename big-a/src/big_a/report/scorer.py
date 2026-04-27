@@ -59,6 +59,8 @@ class WatchlistScorer:
         account: float = 1_000_000,
         skip_trend: bool = False,
         skip_lightgbm: bool = False,
+        qualitative: bool = False,
+        hf_config: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the scorer.
 
@@ -82,6 +84,10 @@ class WatchlistScorer:
             If True, skip Kronos rolling trend computation (much faster).
         skip_lightgbm : bool
             If True, skip LightGBM scoring (much faster).
+        qualitative : bool
+            If True, run hedge fund qualitative analysis.
+        hf_config : dict or None
+            Configuration dict for HedgeFundSignalGenerator.
         """
         self.watchlist_path = watchlist_path
         self.kronos_config_path = kronos_config_path
@@ -92,6 +98,8 @@ class WatchlistScorer:
         self.account = account
         self.skip_trend = skip_trend
         self.skip_lightgbm = skip_lightgbm
+        self.qualitative = qualitative
+        self.hf_config = hf_config or {}
         self._kronos_config: dict[str, Any] | None = None
 
     def load_watchlist(self) -> dict[str, str]:
@@ -609,6 +617,28 @@ class WatchlistScorer:
 
         logger.info("Scoring pipeline complete")
 
+        # Qualitative analysis (hedge fund)
+        hedge_fund_analysis: dict = {}
+        if self.qualitative:
+            from big_a.models.hedge_fund import HedgeFundSignalGenerator
+
+            from qlib.data import D
+            calendar = D.calendar(freq="day")
+            end_date = str(calendar[-1].date())
+            start_date = str(calendar[-90].date()) if len(calendar) >= 90 else str(calendar[0].date())
+
+            hf_gen = HedgeFundSignalGenerator(config=self.hf_config)
+            hf_result = hf_gen.generate_signals(
+                instruments=instruments,
+                start_date=start_date,
+                end_date=end_date,
+                return_details=True,
+            )
+            hedge_fund_analysis = {
+                "details": hf_result.get("details", {}),
+                "signals": hf_result.get("signals", pd.DataFrame()),
+            }
+
         return {
             "watchlist": watchlist,
             "kronos_scores": kronos_scores,
@@ -618,4 +648,5 @@ class WatchlistScorer:
             "market_data": market_data,
             "portfolio": portfolio,
             "summary": summary,
+            "hedge_fund_analysis": hedge_fund_analysis,
         }

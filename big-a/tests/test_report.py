@@ -556,6 +556,82 @@ class TestWatchlistScorerRun:
         assert result["summary"] == {}
 
 
+class TestQualitativeScoring:
+    """Tests for qualitative (hedge fund) analysis integration in WatchlistScorer."""
+
+    def test_qualitative_true_adds_hedge_fund_analysis(self) -> None:
+        """When qualitative=True, run() returns hedge_fund_analysis key."""
+        from big_a.report.scorer import WatchlistScorer
+
+        with patch("big_a.report.scorer.init_qlib") as mock_init, \
+             patch.object(WatchlistScorer, "load_watchlist") as mock_load, \
+             patch.object(WatchlistScorer, "fetch_market_data") as mock_fetch, \
+             patch("big_a.report.scorer.HedgeFundSignalGenerator") as mock_hf_gen_cls, \
+             patch("qlib.data.D") as mock_d:
+
+            mock_load.return_value = {"SH600000": "浦发银行"}
+            mock_fetch.return_value = pd.DataFrame()
+            mock_init.return_value = None
+
+            # Mock qlib calendar
+            mock_calendar = [pd.Timestamp(f"2024-12-{i:02d}") for i in range(1, 32)]
+            mock_d.calendar.return_value = mock_calendar
+
+            # Mock HedgeFundSignalGenerator
+            mock_gen = MagicMock()
+            mock_hf_gen_cls.return_value = mock_gen
+            mock_gen.generate_signals.return_value = {
+                "signals": pd.DataFrame(
+                    {"score": [0.5]},
+                    index=pd.MultiIndex.from_tuples(
+                        [(pd.Timestamp("2024-12-31"), "SH600000")],
+                        names=["datetime", "instrument"],
+                    ),
+                ),
+                "details": {
+                    "SH600000": {
+                        "technicals_agent": {"signal": "bullish", "confidence": 0.8, "reasoning": "RSI oversold"},
+                        "valuation_agent": {"signal": "neutral", "confidence": 0.5, "reasoning": "Fair value"},
+                        "warren_buffett_agent": {"signal": "bullish", "confidence": 0.9, "reasoning": "Strong moat"},
+                    }
+                },
+            }
+
+            scorer = WatchlistScorer(qualitative=True, skip_trend=True, skip_lightgbm=True)
+            scorer._kronos_config = {
+                "lookback": 90, "pred_len": 10, "device": "cpu",
+                "tokenizer_id": "t", "model_id": "m", "max_context": 512, "signal_mode": "mean",
+            }
+            results = scorer.run()
+
+            assert "hedge_fund_analysis" in results
+            assert "details" in results["hedge_fund_analysis"]
+            assert "SH600000" in results["hedge_fund_analysis"]["details"]
+            mock_gen.generate_signals.assert_called_once()
+
+    def test_qualitative_false_no_hedge_fund(self) -> None:
+        """When qualitative=False (default), hedge_fund_analysis is empty dict."""
+        from big_a.report.scorer import WatchlistScorer
+
+        with patch("big_a.report.scorer.init_qlib") as mock_init, \
+             patch.object(WatchlistScorer, "load_watchlist") as mock_load, \
+             patch.object(WatchlistScorer, "fetch_market_data") as mock_fetch:
+
+            mock_load.return_value = {"SH600000": "浦发银行"}
+            mock_fetch.return_value = pd.DataFrame()
+            mock_init.return_value = None
+
+            scorer = WatchlistScorer(skip_trend=True, skip_lightgbm=True)
+            scorer._kronos_config = {
+                "lookback": 90, "pred_len": 10, "device": "cpu",
+                "tokenizer_id": "t", "model_id": "m", "max_context": 512, "signal_mode": "mean",
+            }
+            results = scorer.run()
+
+            # qualitative=False returns empty dict, not missing key
+            assert results.get("hedge_fund_analysis") == {}
+
+
 class TestFormatReport:
     """Tests for formatter functions."""
 
@@ -759,6 +835,47 @@ class TestFormatReport:
         output = buf.getvalue()
 
         assert "暂无行情数据" in output
+
+    def test_format_qualitative_analysis_with_data(self):
+        """Test format_qualitative_analysis renders agent signals."""
+        from big_a.report.formatter import format_qualitative_analysis
+
+        results = {
+            "watchlist": {"SH600000": "浦发银行"},
+            "hedge_fund_analysis": {
+                "details": {
+                    "SH600000": {
+                        "technicals_agent": {"signal": "bullish", "confidence": 0.8, "reasoning": "RSI oversold, MACD golden cross forming"},
+                        "valuation_agent": {"signal": "neutral", "confidence": 0.5, "reasoning": "Fair valuation based on historical percentiles"},
+                        "warren_buffett_agent": {"signal": "bullish", "confidence": 0.9, "reasoning": "Strong moat and competitive advantages"},
+                    }
+                },
+                "signals": pd.DataFrame(),
+            },
+        }
+
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=True)
+        format_qualitative_analysis(results, console)
+        output = buf.getvalue()
+
+        assert "AI 定性分析" in output
+        assert "技术分析" in output
+        assert "看涨" in output
+        assert "RSI" in output
+
+    def test_format_qualitative_analysis_empty(self):
+        """Test format_qualitative_analysis skips when no data."""
+        from big_a.report.formatter import format_qualitative_analysis
+
+        results = {"hedge_fund_analysis": {}}
+
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=True)
+        format_qualitative_analysis(results, console)
+        output = buf.getvalue()
+
+        assert "AI 定性分析" not in output
 
 
 class TestFormatterHelpers:
