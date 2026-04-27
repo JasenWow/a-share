@@ -42,6 +42,7 @@ dependencies = [
   "prefect>=3.0",
   "pyarrow",
   "rich>=13.0",
+  "python-socks>=2.8.1",
 ]
 
 # pytest configuration (minimal, project-wide)
