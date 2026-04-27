@@ -353,3 +353,119 @@ class TestHedgeFundSignalGeneratorImport:
         from big_a.models.hedge_fund.signal_generator import HedgeFundSignalGenerator as HFSG
 
         assert HFSG is HedgeFundSignalGenerator
+
+
+class TestReturnDetails:
+    """Tests for return_details parameter in generate_signals."""
+
+    @patch("big_a.models.hedge_fund.signal_generator.create_workflow")
+    @patch("big_a.models.hedge_fund.signal_generator.run_workflow")
+    def test_return_details_false_returns_dataframe(self, mock_run, mock_create) -> None:
+        """return_details=False (default) returns plain DataFrame as before."""
+        mock_create.return_value = MagicMock()
+        mock_run.return_value = {
+            "data": {
+                "portfolio_decision": {"score": 0.5, "action": "buy", "reasoning": "test"},
+                "analyst_signals": {
+                    "technicals_agent": {
+                        "SH600000": {"signal": "bullish", "confidence": 0.8, "reasoning": "RSI oversold"}
+                    }
+                },
+            },
+        }
+        gen = HedgeFundSignalGenerator()
+        result = gen.generate_signals("SH600000", "2024-01-01", "2024-12-31", return_details=False)
+        # Should be a plain DataFrame (existing behavior)
+        assert isinstance(result, pd.DataFrame)
+        assert result.index.names == ["datetime", "instrument"]
+
+    @patch("big_a.models.hedge_fund.signal_generator.create_workflow")
+    @patch("big_a.models.hedge_fund.signal_generator.run_workflow")
+    def test_return_details_true_returns_dict(self, mock_run, mock_create) -> None:
+        """return_details=True returns dict with signals and details."""
+        mock_create.return_value = MagicMock()
+        mock_run.return_value = {
+            "data": {
+                "portfolio_decision": {"score": 0.5, "action": "buy", "reasoning": "test"},
+                "analyst_signals": {
+                    "technicals_agent": {
+                        "SH600000": {"signal": "bullish", "confidence": 0.8, "reasoning": "RSI oversold, MACD golden cross"}
+                    },
+                    "valuation_agent": {
+                        "SH600000": {"signal": "neutral", "confidence": 0.5, "reasoning": "Fair valuation"}
+                    },
+                },
+            },
+        }
+        gen = HedgeFundSignalGenerator()
+        result = gen.generate_signals("SH600000", "2024-01-01", "2024-12-31", return_details=True)
+        # Should be a dict
+        assert isinstance(result, dict)
+        assert "signals" in result
+        assert "details" in result
+        # signals is still a DataFrame
+        assert isinstance(result["signals"], pd.DataFrame)
+        # details has per-instrument agent data
+        assert "SH600000" in result["details"]
+        details = result["details"]["SH600000"]
+        assert "technicals_agent" in details
+        assert details["technicals_agent"]["signal"] == "bullish"
+        assert details["technicals_agent"]["confidence"] == 0.8
+        assert "RSI" in details["technicals_agent"]["reasoning"]
+
+    @patch("big_a.models.hedge_fund.signal_generator.create_workflow")
+    @patch("big_a.models.hedge_fund.signal_generator.run_workflow")
+    def test_details_multiple_instruments(self, mock_run, mock_create) -> None:
+        """Details are preserved for multiple instruments."""
+        mock_create.return_value = MagicMock()
+
+        def side_effect(ticker, **kwargs):
+            return {
+                "data": {
+                    "portfolio_decision": {"score": 0.6, "action": "buy", "reasoning": "test"},
+                    "analyst_signals": {
+                        "warren_buffett_agent": {
+                            ticker: {"signal": "bullish", "confidence": 0.9, "reasoning": "Strong moat"}
+                        }
+                    },
+                },
+            }
+        mock_run.side_effect = side_effect
+
+        gen = HedgeFundSignalGenerator()
+        result = gen.generate_signals(["SH600000", "SZ000001"], "2024-01-01", "2024-12-31", return_details=True)
+        assert "SH600000" in result["details"]
+        assert "SZ000001" in result["details"]
+
+    @patch("big_a.models.hedge_fund.signal_generator.create_workflow")
+    @patch("big_a.models.hedge_fund.signal_generator.run_workflow")
+    def test_details_empty_analyst_signals(self, mock_run, mock_create) -> None:
+        """Empty analyst_signals still works gracefully."""
+        mock_create.return_value = MagicMock()
+        mock_run.return_value = {
+            "data": {
+                "portfolio_decision": {"score": 0.0, "action": "hold", "reasoning": "test"},
+                "analyst_signals": {},
+            },
+        }
+        gen = HedgeFundSignalGenerator()
+        result = gen.generate_signals("SH600000", "2024-01-01", "2024-12-31", return_details=True)
+        assert isinstance(result, dict)
+        assert "SH600000" in result["details"]
+        assert result["details"]["SH600000"] == {}
+
+    @patch("big_a.models.hedge_fund.signal_generator.create_workflow")
+    @patch("big_a.models.hedge_fund.signal_generator.run_workflow")
+    def test_default_return_details_is_false(self, mock_run, mock_create) -> None:
+        """Default behavior is return_details=False (backward compat)."""
+        mock_create.return_value = MagicMock()
+        mock_run.return_value = {
+            "data": {
+                "portfolio_decision": {"score": 0.3, "action": "buy", "reasoning": "test"},
+                "analyst_signals": {"agent": {"SH600000": {"signal": "bullish", "confidence": 0.7, "reasoning": "test"}}},
+            },
+        }
+        gen = HedgeFundSignalGenerator()
+        # Call WITHOUT return_details — should return DataFrame
+        result = gen.generate_signals("SH600000", "2024-01-01", "2024-12-31")
+        assert isinstance(result, pd.DataFrame)

@@ -42,7 +42,8 @@ class HedgeFundSignalGenerator:
         instruments: list[str] | str,
         start_date: str,
         end_date: str,
-    ) -> pd.DataFrame:
+        return_details: bool = False,
+    ) -> pd.DataFrame | dict:
         """Generate trading signals using the hedge fund multi-agent workflow.
 
         Runs the full LangGraph workflow for each instrument:
@@ -57,11 +58,15 @@ class HedgeFundSignalGenerator:
             Qlib instrument codes (e.g. "SH600000" or ["SH600000", "SZ000001"]).
         start_date, end_date : str
             Date range for analysis (YYYY-MM-DD format).
+        return_details : bool, default False
+            If True, returns dict with signals DataFrame and per-instrument agent details.
+            If False (default), returns only the signals DataFrame (backward compatible).
 
         Returns
         -------
-        pd.DataFrame
-            MultiIndex (datetime, instrument), column "score".
+        pd.DataFrame or dict
+            If return_details=False: MultiIndex (datetime, instrument), column "score".
+            If return_details=True: dict with keys "signals" (DataFrame) and "details" (dict).
             Score range: [-1, 1] for Qlib backtest compatibility.
             datetime is the end_date when the signal is available.
         """
@@ -69,6 +74,7 @@ class HedgeFundSignalGenerator:
             instruments = [instruments]
 
         all_scores = []
+        all_details = {}
 
         for instrument in instruments:
             logger.info(f"Generating signal for {instrument} from {start_date} to {end_date}")
@@ -92,6 +98,14 @@ class HedgeFundSignalGenerator:
                     "score": float(score),
                 })
 
+                if return_details:
+                    analyst_signals = result.get("data", {}).get("analyst_signals", {})
+                    instrument_details = {}
+                    for agent_name, signal_data in analyst_signals.items():
+                        if instrument in signal_data:
+                            instrument_details[agent_name] = signal_data[instrument]
+                    all_details[instrument] = instrument_details
+
                 logger.info(f"Signal for {instrument}: {score:.3f}")
 
             except Exception as e:
@@ -101,6 +115,8 @@ class HedgeFundSignalGenerator:
                     "instrument": instrument,
                     "score": 0.0,
                 })
+                if return_details:
+                    all_details[instrument] = {}
 
         if not all_scores:
             logger.warning("No signals generated")
@@ -111,10 +127,16 @@ class HedgeFundSignalGenerator:
 
         df = pd.DataFrame(all_scores)
         df = df.set_index(["datetime", "instrument"])
-        result = df[["score"]]
-        result.index.names = ["datetime", "instrument"]
-        logger.info(f"Generated {len(result)} signals")
-        return result
+        result_df = df[["score"]]
+        result_df.index.names = ["datetime", "instrument"]
+        logger.info(f"Generated {len(result_df)} signals")
+
+        if return_details:
+            return {
+                "signals": result_df,
+                "details": all_details,
+            }
+        return result_df
 
     def _extract_score(self, decision: Any) -> float:
         """Extract score from portfolio decision.

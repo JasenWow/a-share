@@ -50,3 +50,21 @@ class MarketData(BaseModel):
     low: float | None = None
     close: float | None = None
     volume: float | None = None
+
+
+class QualitativeAgentDetail(TypedDict, total=False):
+    """Per-agent signal detail for a single instrument."""
+    signal: str
+    confidence: float
+    reasoning: str
+
+
+class QualitativeDetails(TypedDict, total=False):
+    """Per-instrument qualitative analysis details."""
+    agent_name: dict[str, QualitativeAgentDetail]
+
+
+class QualitativeReport(TypedDict, total=False):
+    """Full qualitative analysis report when return_details=True."""
+    signals: object
+    details: dict[str, dict[str, dict[str, object]]]

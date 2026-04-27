@@ -171,3 +171,52 @@ class TestIntegration:
         assert isinstance(result, SampleResponse)
         assert result.value
         assert isinstance(result.count, int)
+
+
+class TestOpenRouter:
+    """Tests for OpenRouter LLM provider support."""
+
+    def test_create_llm_openrouter_with_config(self) -> None:
+        """Test that OpenRouter ChatOpenAI is created with correct config."""
+        config = {
+            "llm": {
+                "provider": "openrouter",
+                "api_key": "sk-or-test-key",
+                "model": "google/gemini-2.0-flash-exp:free",
+            }
+        }
+        with patch("big_a.models.hedge_fund.llm.ChatOpenAI") as mock_chat:
+            mock_instance = MagicMock(spec=BaseChatModel)
+            mock_chat.return_value = mock_instance
+            result = create_llm(config)
+            mock_chat.assert_called_once()
+            call_kwargs = mock_chat.call_args.kwargs
+            assert call_kwargs["base_url"] == "https://openrouter.ai/api/v1/"
+            assert call_kwargs["model"] == "google/gemini-2.0-flash-exp:free"
+            assert call_kwargs["api_key"] == "sk-or-test-key"
+
+    def test_create_llm_openrouter_from_env(self) -> None:
+        """Test that OpenRouter API key is read from OPENROUTER_API_KEY env var."""
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "env-or-key"}, clear=True):
+            config = {"llm": {"provider": "openrouter"}}
+            with patch("big_a.models.hedge_fund.llm.ChatOpenAI") as mock_chat:
+                mock_chat.return_value = MagicMock(spec=BaseChatModel)
+                create_llm(config)
+                call_kwargs = mock_chat.call_args.kwargs
+                assert call_kwargs["api_key"] == "env-or-key"
+
+    def test_create_llm_openrouter_no_key_raises(self) -> None:
+        """Test that missing OpenRouter API key raises ValueError."""
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=True):
+            config = {"llm": {"provider": "openrouter"}}
+            with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+                create_llm(config)
+
+    def test_create_llm_openrouter_custom_model(self) -> None:
+        """Test that custom model overrides default."""
+        config = {"llm": {"provider": "openrouter", "api_key": "test", "model": "meta-llama/llama-3-8b:free"}}
+        with patch("big_a.models.hedge_fund.llm.ChatOpenAI") as mock_chat:
+            mock_chat.return_value = MagicMock(spec=BaseChatModel)
+            create_llm(config)
+            call_kwargs = mock_chat.call_args.kwargs
+            assert call_kwargs["model"] == "meta-llama/llama-3-8b:free"
