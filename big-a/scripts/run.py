@@ -17,6 +17,16 @@ sys.path.insert(0, str(SRC_DIR))
 import typer
 from loguru import logger
 
+from big_a.experiment import (
+    experiment_context,
+    log_hyperparams_from_config,
+    log_data_version,
+    log_model_artifact,
+    make_experiment_name,
+    log_metrics,
+    log_params,
+)
+
 app = typer.Typer(help="Big-A quant system CLI")
 
 
@@ -35,20 +45,35 @@ def train(
     output: Path = typer.Option(
         "output/lightgbm_model.pkl", help="Path to save the trained model"
     ),
+    no_track: bool = typer.Option(False, "--no-track", help="Disable experiment tracking"),
 ) -> None:
     """Train a LightGBM model on Alpha158 features."""
     from big_a.models.lightgbm_model import train as _train, save_model, predict_to_dataframe
 
-    model, dataset, config = _train(
-        model_config_path=model_config,
-        data_config_path=data_config,
-    )
-
-    save_model(model, output)
-
-    preds = predict_to_dataframe(model, dataset, segment="test")
-    logger.info(f"Test predictions shape: {preds.shape}")
-    logger.info(f"Score stats:\n{preds['score'].describe()}")
+    if no_track:
+        model, dataset, config = _train(
+            model_config_path=model_config,
+            data_config_path=data_config,
+        )
+        save_model(model, output)
+        preds = predict_to_dataframe(model, dataset, segment="test")
+        logger.info(f"Test predictions shape: {preds.shape}")
+        logger.info(f"Score stats:\n{preds['score'].describe()}")
+    else:
+        exp_name = make_experiment_name("train", "lightgbm")
+        with experiment_context(exp_name) as _recorder:
+            model, dataset, config = _train(
+                model_config_path=model_config,
+                data_config_path=data_config,
+            )
+            log_hyperparams_from_config(config)
+            log_data_version()
+            save_model(model, output)
+            log_model_artifact(output)
+            preds = predict_to_dataframe(model, dataset, segment="test")
+            log_metrics({"prediction_count": float(len(preds))})
+            logger.info(f"Test predictions shape: {preds.shape}")
+            logger.info(f"Score stats:\n{preds['score'].describe()}")
 
 
 # ---------------------------------------------------------------------------
@@ -84,15 +109,27 @@ def predict(
     local_only: bool = typer.Option(
         False, "--local-only", help="Kronos: use cached model only"
     ),
+    no_track: bool = typer.Option(False, "--no-track", help="Disable experiment tracking"),
 ) -> None:
     """Generate predictions from a trained model."""
-    if model == "lightgbm":
-        _predict_lightgbm(model_path, data_config, model_config, segment, output)
-    elif model == "kronos":
-        _predict_kronos(kronos_config, market, output, local_only)
+    if no_track:
+        if model == "lightgbm":
+            _predict_lightgbm(model_path, data_config, model_config, segment, output)
+        elif model == "kronos":
+            _predict_kronos(kronos_config, market, output, local_only)
+        else:
+            logger.error(f"Unknown model type: {model}. Use 'lightgbm' or 'kronos'.")
+            raise typer.Exit(1)
     else:
-        logger.error(f"Unknown model type: {model}. Use 'lightgbm' or 'kronos'.")
-        raise typer.Exit(1)
+        exp_name = make_experiment_name("predict", model)
+        with experiment_context(exp_name) as _recorder:
+            if model == "lightgbm":
+                _predict_lightgbm_track(model_path, data_config, model_config, segment, output)
+            elif model == "kronos":
+                _predict_kronos_track(kronos_config, market, output, local_only)
+            else:
+                logger.error(f"Unknown model type: {model}. Use 'lightgbm' or 'kronos'.")
+                raise typer.Exit(1)
 
 
 def _predict_lightgbm(
@@ -163,6 +200,81 @@ def _predict_kronos(
     logger.info(f"Signals saved to {out} ({len(signals)} rows)")
 
 
+def _predict_lightgbm_track(
+    model_path: Path,
+    data_config: str,
+    model_config: str,
+    segment: str,
+    output: Path | None,
+) -> None:
+    from big_a.models.lightgbm_model import load_model, create_dataset, predict_to_dataframe
+    from big_a.config import load_config
+    from big_a.qlib_config import init_qlib
+
+    init_qlib()
+
+    config = load_config(model_config, data_config)
+    log_hyperparams_from_config(config)
+
+    mdl = load_model(model_path)
+    dataset = create_dataset(config)
+
+    preds = predict_to_dataframe(mdl, dataset, segment=segment)
+
+    out = output or Path("output/lightgbm_predictions.parquet")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    preds.to_parquet(out)
+    log_params({"model_type": "lightgbm", "segment": segment, "output_path": str(out)})
+    log_metrics({"prediction_count": float(len(preds))})
+    logger.info(f"Predictions saved to {out} ({len(preds)} rows)")
+
+
+def _predict_kronos_track(
+    config_path: str,
+    market: str,
+    output: Path | None,
+    local_only: bool,
+) -> None:
+    from big_a.config import load_config
+    from big_a.models.kronos import KronosSignalGenerator
+
+    config = load_config(config_path)
+    log_hyperparams_from_config(config)
+    kconf = config.get("kronos", {})
+    iconf = config.get("inference", {})
+
+    gen = KronosSignalGenerator(
+        tokenizer_id=kconf.get("tokenizer_id", "NeoQuasar/Kronos-Tokenizer-base"),
+        model_id=kconf.get("model_id", "NeoQuasar/Kronos-base"),
+        device=kconf.get("device", "cpu"),
+        lookback=kconf.get("lookback", 90),
+        pred_len=kconf.get("pred_len", 10),
+        max_context=kconf.get("max_context", 512),
+        signal_mode=kconf.get("signal_mode", "mean"),
+    )
+    gen.load_model(local_files_only=local_only)
+
+    from qlib.data import D
+    from big_a.qlib_config import init_qlib
+
+    init_qlib()
+    instruments = D.list_instruments(instruments=D.instruments(market), as_list=True)
+    logger.info(f"Loaded {len(instruments)} instruments from market={market}")
+
+    signals = gen.generate_signals(
+        instruments=instruments,
+        start_date=iconf.get("start_date", "2024-01-01"),
+        end_date=iconf.get("end_date", "2024-12-31"),
+    )
+
+    out = output or Path("output/kronos_predictions.csv")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    signals.to_csv(out)
+    log_params({"output_path": str(out), "model_type": "kronos", "instrument_count": float(len(instruments))})
+    log_metrics({"signal_count": float(len(signals))})
+    logger.info(f"Signals saved to {out} ({len(signals)} rows)")
+
+
 # ---------------------------------------------------------------------------
 # backtest
 # ---------------------------------------------------------------------------
@@ -181,6 +293,7 @@ def backtest(
     analysis_output: Path = typer.Option(
         "output/backtest_analysis.parquet", help="Path to save risk analysis"
     ),
+    no_track: bool = typer.Option(False, "--no-track", help="Disable experiment tracking"),
 ) -> None:
     """Run backtest using saved signal predictions."""
     import pandas as pd
@@ -209,6 +322,19 @@ def backtest(
     logger.info(f"Analysis saved to {analysis_output}")
     logger.info(f"\n{analysis.to_string()}")
 
+    if not no_track:
+        exp_name = make_experiment_name("backtest")
+        with experiment_context(exp_name) as _recorder:
+            log_params({"signal_file": str(signal_file)})
+            metrics = {}
+            for idx in analysis.index:
+                for col in analysis.columns:
+                    key = f"{idx}_{col}"
+                    val = analysis.loc[idx, col]
+                    if pd.notna(val):
+                        metrics[key] = float(val)
+            log_metrics(metrics)
+
 
 # ---------------------------------------------------------------------------
 # evaluate
@@ -228,6 +354,7 @@ def evaluate(
     output_dir: Path = typer.Option(
         "output/evaluation", help="Directory for output plots and tables"
     ),
+    no_track: bool = typer.Option(False, "--no-track", help="Disable experiment tracking"),
 ) -> None:
     """Compare Kronos and LightGBM model predictions."""
     import pandas as pd
@@ -269,6 +396,18 @@ def evaluate(
         plot_model_comparison(comparison, metric=metric, save_path=str(output_dir / f"compare_{metric}.png"))
 
     logger.info("Evaluation complete. Results saved to {}", output_dir)
+
+    if not no_track:
+        exp_name = make_experiment_name("evaluate")
+        with experiment_context(exp_name) as _recorder:
+            log_params({"kronos": str(kronos), "lightgbm": str(lightgbm)})
+            for _, row in comparison.iterrows():
+                model_name = row.name
+                for col in comparison.columns:
+                    key = f"{model_name}_{col}"
+                    val = row[col]
+                    if pd.notna(val):
+                        log_metrics({key: float(val)})
 
 
 # ---------------------------------------------------------------------------

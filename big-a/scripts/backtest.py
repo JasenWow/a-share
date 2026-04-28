@@ -10,6 +10,13 @@ sys.path.insert(0, str(SRC_DIR))
 import typer
 from loguru import logger
 
+from big_a.experiment import (
+    experiment_context,
+    log_metrics,
+    log_params,
+    make_experiment_name,
+)
+
 app = typer.Typer()
 
 
@@ -27,6 +34,7 @@ def main(
     analysis_output: Path = typer.Option(
         "output/backtest_analysis.parquet", help="Path to save risk analysis"
     ),
+    no_track: bool = typer.Option(False, "--no-track", help="Disable experiment tracking"),
 ):
     """Run backtest using saved signal predictions."""
     import pandas as pd
@@ -53,6 +61,18 @@ def main(
     logger.info(f"Analysis saved to {analysis_output}")
 
     logger.info(f"\n{analysis.to_string()}")
+
+    if not no_track:
+        exp_name = make_experiment_name("backtest")
+        with experiment_context(exp_name) as _recorder:
+            log_params({"signal_path": str(signal_path), "config_path": config_path})
+            metrics = {}
+            for idx in analysis.index:
+                for col in analysis.columns:
+                    val = analysis.loc[idx, col]
+                    if pd.notna(val):
+                        metrics[f"{idx}_{col}"] = float(val)
+            log_metrics(metrics)
 
 
 if __name__ == "__main__":

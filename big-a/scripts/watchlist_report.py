@@ -15,6 +15,13 @@ import typer
 from loguru import logger
 from rich.console import Console
 
+from big_a.experiment import (
+    experiment_context,
+    log_params,
+    log_metrics,
+    make_experiment_name,
+)
+
 app = typer.Typer(help="自选股分析报告 - 打分、趋势、模拟持仓")
 
 
@@ -29,6 +36,7 @@ def report(
     lookback_days: int = typer.Option(5, "--lookback", "-l", help="历史趋势天数 (Kronos滚动推理较慢)"),
     skip_trend: bool = typer.Option(False, "--skip-trend", help="跳过Kronos滚动打分 (大幅加速)"),
     qualitative: bool = typer.Option(False, "--qualitative", "-q", help="启用 AI 定性分析 (多Agent工作流)"),
+    no_track: bool = typer.Option(False, "--no-track", help="Disable experiment tracking"),
 ) -> None:
     """Generate full watchlist scoring report with trends and portfolio simulation."""
     from big_a.report.scorer import WatchlistScorer
@@ -95,6 +103,15 @@ def report(
 
         format_report(results, output_console)
 
+        if not no_track:
+            exp_name = make_experiment_name("report", model)
+            with experiment_context(exp_name):
+                log_params({"model": model, "watchlist": watchlist, "account": float(account), "lookback_days": lookback_days})
+                log_metrics({
+                    "has_kronos": float(has_kronos),
+                    "has_lightgbm": float(has_lightgbm),
+                })
+
         if output:
             output_file.close()
             logger.info("Report saved to {}", output)
@@ -115,6 +132,7 @@ def score(
     watchlist: str = typer.Option("configs/watchlist.yaml", "--watchlist", "-w", help="自选股配置文件路径"),
     model: str = typer.Option("kronos", "--model", "-m", help="使用的模型: all, kronos, lightgbm"),
     local_only: bool = typer.Option(True, "--local-only", help="仅使用本地缓存的Kronos模型"),
+    no_track: bool = typer.Option(False, "--no-track", help="Disable experiment tracking"),
 ) -> None:
     """Quick scoring only, no full report."""
     from big_a.report.scorer import WatchlistScorer
@@ -161,6 +179,15 @@ def score(
 
         has_kronos = not results["kronos_scores"].empty
         has_lightgbm = not results["lightgbm_scores"].empty
+
+        if not no_track:
+            exp_name = make_experiment_name("score", model)
+            with experiment_context(exp_name):
+                log_params({"model": model, "watchlist": watchlist})
+                log_metrics({
+                    "has_kronos": float(has_kronos),
+                    "has_lightgbm": float(has_lightgbm),
+                })
 
         if not has_kronos and not has_lightgbm:
             logger.error("No scores generated from any model")
