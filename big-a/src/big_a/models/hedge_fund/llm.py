@@ -12,7 +12,7 @@ T = TypeVar("T", bound=BaseModel)
 DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
 DEFAULT_MODEL = "glm-4-flash"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/"
-OPENROUTER_DEFAULT_MODEL = "google/gemini-2.0-flash-exp:free"
+OPENROUTER_DEFAULT_MODEL = "google/gemma-4-31b-it:free"
 
 
 def create_llm(config: dict[str, Any] | None = None) -> BaseChatModel:

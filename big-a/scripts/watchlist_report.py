@@ -7,6 +7,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SRC_DIR = SCRIPT_DIR.parent / "src"
 sys.path.insert(0, str(SRC_DIR))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import pandas as pd
 import typer
 from loguru import logger
@@ -40,12 +43,17 @@ def report(
         logger.info("Model: {}", model)
         logger.info("Lookback days: {}", lookback_days)
 
+        hf_config: dict = {}
         if qualitative:
             import os
-            if not os.environ.get("OPENROUTER_API_KEY"):
-                console.print("[red]启用定性分析需要设置 OPENROUTER_API_KEY 环境变量[/red]")
+            has_openrouter = bool(os.environ.get("OPENROUTER_API_KEY"))
+            has_zhipu = bool(os.environ.get("ZHIPU_API_KEY"))
+            if not has_openrouter and not has_zhipu:
+                console.print("[red]启用定性分析需要设置 OPENROUTER_API_KEY 或 ZHIPU_API_KEY 环境变量[/red]")
                 console.print("[yellow]请参考 .env.example 配置 API key[/yellow]")
                 raise typer.Exit(1)
+            if has_openrouter:
+                hf_config = {"llm": {"provider": "openrouter"}}
 
         scorer = WatchlistScorer(
             watchlist_path=watchlist,
@@ -54,6 +62,7 @@ def report(
             skip_trend=skip_trend,
             skip_lightgbm=(model == "kronos"),
             qualitative=qualitative,
+            hf_config=hf_config,
         )
 
         results = scorer.run()
