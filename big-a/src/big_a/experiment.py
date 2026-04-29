@@ -30,8 +30,8 @@ def start_experiment(name: str, params: dict | None = None) -> Any:
 
         return recorder
     except Exception as e:
-        logger.error(f"Failed to start experiment '{name}': {e}")
-        raise RuntimeError(f"Failed to start experiment: {e}") from e
+        logger.warning(f"Failed to start experiment '{name}' (non-fatal): {e}")
+        return None
 
 
 def log_params(params: dict) -> None:
@@ -52,8 +52,7 @@ def log_params(params: dict) -> None:
         recorder.log_params(**params)
         logger.debug(f"Logged {len(params)} parameters")
     except Exception as e:
-        logger.error(f"Failed to log parameters: {e}")
-        raise RuntimeError(f"Failed to log parameters: {e}") from e
+        logger.warning(f"Failed to log parameters (non-fatal): {e}")
 
 
 def log_metrics(metrics: dict, step: int | None = None) -> None:
@@ -79,8 +78,7 @@ def log_metrics(metrics: dict, step: int | None = None) -> None:
 
         logger.debug(f"Logged {len(metrics)} metrics" + (f" at step {step}" if step is not None else ""))
     except Exception as e:
-        logger.error(f"Failed to log metrics: {e}")
-        raise RuntimeError(f"Failed to log metrics: {e}") from e
+        logger.warning(f"Failed to log metrics (non-fatal): {e}")
 
 
 def log_artifact(local_path: str | Path, artifact_path: str | None = None) -> None:
@@ -317,18 +315,21 @@ def experiment_context(name: str, params: dict | None = None):
 
     @contextlib.contextmanager
     def _ctx():
+        recorder = None
         try:
             recorder = R.start(experiment_name=name)
             logger.info(f"Started experiment context: {name}")
-            if params:
-                try:
-                    recorder.log_params(**params)
-                except Exception as e:
-                    logger.warning(f"Failed to log params in experiment context: {e}")
-            yield recorder
         except Exception as e:
-            logger.error(f"Failed to start experiment context '{name}': {e}")
-            raise
+            logger.warning(f"Failed to start experiment context '{name}' (non-fatal): {e}")
+
+        if params and recorder is not None:
+            try:
+                recorder.log_params(**params)
+            except Exception as e:
+                logger.warning(f"Failed to log params in experiment context: {e}")
+
+        try:
+            yield recorder
         finally:
             try:
                 R.end_exp()

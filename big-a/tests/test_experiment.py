@@ -199,14 +199,13 @@ class TestExperimentContext:
                 _mock_qlib.workflow.R.end_exp.assert_called_once()
 
     def test_experiment_context_start_failure(self):
-        """Start fails - exception propagates, end still called per spec."""
+        """Start fails - gracefully yields None, end still called."""
         from big_a.experiment import experiment_context
 
         with patch.object(_mock_qlib.workflow.R, "start", side_effect=RuntimeError("start failed")):
             with patch.object(_mock_qlib.workflow.R, "end_exp") as mock_end:
-                with pytest.raises(RuntimeError, match="start failed"):
-                    with experiment_context("test_exp"):
-                        pass
+                with experiment_context("test_exp") as recorder:
+                    assert recorder is None
                 mock_end.assert_called_once()
 
 
