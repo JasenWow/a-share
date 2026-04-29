@@ -1,0 +1,40 @@
+simulation:
+  initial_capital: 500000
+  account: "sim_001"
+  max_weight: 0.25
+  stop_loss: -0.08
+  rebalance_freq: 5
+  topk: 5
+  n_drop: 1
+  risk_degree: 0.95
+  circuit_breaker:
+    max_total_loss: -0.20
+    min_cash: 10000
+  exchange:
+    open_cost: 0.0005
+    close_cost: 0.0015
+    min_commission: 5.0
+    limit_threshold: 0.095
+    deal_price: "close"
+  universe:
+    base_pool: "csi300"
+    watchlist: "configs/watchlist.yaml"
+
+llm:
+  enabled: true
+  api_base: "https://api.minimaxi.com/anthropic"
+  model: "MiniMax-M2.7"
+  timeout: 30
+  max_retries: 3
+  temperature: 0.3
+  max_tokens: 4096
+
+fusion:
+  llm_weight: 0.5
+  quant_weight: 0.5
+
+storage:
+  base_dir: "data/simulation"
+  trades_dir: "data/simulation/trades"
+  decisions_dir: "data/simulation/decisions"
+  snapshots_dir: "data/simulation/snapshots"
