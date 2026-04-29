@@ -31,6 +31,8 @@ def create_llm(config: dict[str, Any] | None = None) -> BaseChatModel:
             api_key=api_key,
             temperature=llm_cfg.get("temperature", 0.1),
             max_tokens=llm_cfg.get("max_tokens", 2000),
+            timeout=60,
+            request_timeout=60,
         )
     else:
         api_key = os.environ.get("ZHIPU_API_KEY") or llm_cfg.get("api_key", "")
@@ -42,6 +44,8 @@ def create_llm(config: dict[str, Any] | None = None) -> BaseChatModel:
             api_key=api_key,
             temperature=llm_cfg.get("temperature", 0.1),
             max_tokens=llm_cfg.get("max_tokens", 2000),
+            timeout=60,
+            request_timeout=60,
         )
 
 

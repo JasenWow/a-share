@@ -46,6 +46,8 @@ class TestCreateLLM:
                 api_key="test-key-123",
                 temperature=0.5,
                 max_tokens=4000,
+                timeout=60,
+                request_timeout=60,
             )
             assert result is mock_instance
 

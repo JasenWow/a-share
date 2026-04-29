@@ -102,8 +102,7 @@ class HedgeFundSignalGenerator:
                     analyst_signals = result.get("data", {}).get("analyst_signals", {})
                     instrument_details = {}
                     for agent_name, signal_data in analyst_signals.items():
-                        if instrument in signal_data:
-                            instrument_details[agent_name] = signal_data[instrument]
+                        instrument_details[agent_name] = signal_data
                     all_details[instrument] = instrument_details
 
                 logger.info(f"Signal for {instrument}: {score:.3f}")

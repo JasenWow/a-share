@@ -233,6 +233,7 @@ class WatchlistScorer:
         records = []
 
         for i, target_date in enumerate(target_dates):
+            logger.debug("Kronos rolling: date {}/{} ({})", i + 1, len(target_dates), target_date.strftime("%Y-%m-%d"))
             # For each target date, we need lookback days ending at that date
             # The index in the data DataFrame depends on where this date falls
 
@@ -511,18 +512,29 @@ class WatchlistScorer:
 
         logger.info("Scoring {} instruments with Kronos and LightGBM", len(instruments))
 
+        # Limit OpenMP threads to 1 to avoid deadlock between LightGBM (C++ OpenMP)
+        # and PyTorch (also OpenMP) thread pools. Both libraries use OpenMP for
+        # multithreading, and without this setting they can conflict on macOS causing
+        # a deadlock when LightGBM runs before Kronos (which imports torch at module level).
+        import os
+        os.environ.setdefault("OMP_NUM_THREADS", "1")
+        os.environ.setdefault("MKL_NUM_THREADS", "1")
+
         # LightGBM must run before Kronos to avoid torch + pickle.load deadlock
+        logger.info("正在运行 LightGBM 模型打分...")
         if self.skip_lightgbm:
             lightgbm_scores = pd.DataFrame()
             logger.info("Skipping LightGBM scoring (skip_lightgbm=True)")
         else:
             lightgbm_scores = self.score_lightgbm(instruments)
 
+        logger.info("正在运行 Kronos 模型打分 (首次加载模型可能需要 30 秒以上)...")
         kronos_scores = self.score_kronos(instruments)
         if self.skip_trend:
             kronos_trend = pd.DataFrame()
             logger.info("Skipping Kronos rolling trend (skip_trend=True)")
         else:
+            logger.info("正在计算 Kronos 滚动趋势 (这可能需要几分钟)...")
             kronos_trend = self.score_kronos_rolling(instruments, n_days=self.lookback_days)
 
         if not lightgbm_scores.empty:
@@ -565,8 +577,8 @@ class WatchlistScorer:
                 combined["kronos_norm"] = (combined["score_pct"] - combined["score_pct"].min()) / (
                     combined["score_pct"].max() - combined["score_pct"].min() + 1e-5
                 )
-                combined["lgb_norm"] = (combined["score_lgb"] - combined["score_lgb"].min()) / (
-                    combined["score_lgb"].max() - combined["score_lgb"].min() + 1e-5
+                combined["lgb_norm"] = (combined["score"] - combined["score"].min()) / (
+                    combined["score"].max() - combined["score"].min() + 1e-5
                 )
 
                 # Combined score = simple average
@@ -620,6 +632,7 @@ class WatchlistScorer:
         # Qualitative analysis (hedge fund)
         hedge_fund_analysis: dict = {}
         if self.qualitative:
+            logger.info("正在进行 AI 定性分析 (多Agent工作流，请耐心等待)...")
             from big_a.models.hedge_fund import HedgeFundSignalGenerator
 
             from qlib.data import D
