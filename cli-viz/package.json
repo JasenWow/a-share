@@ -1,0 +1,21 @@
+{
+	"name": "cli-viz",
+	"private": true,
+	"workspaces": ["packages/*"],
+	"scripts": {
+		"lint": "tsc --noEmit",
+		"format": "prettier --write ."
+	},
+	"devDependencies": {
+		"@evan/duckdb": "^0.1.5",
+		"@types/bun": "latest",
+		"@types/node": "latest",
+		"@types/react": "^19.1.0",
+		"ink-testing-library": "^4.0.0",
+		"prettier": "latest",
+		"typescript": "latest"
+	},
+	"dependencies": {
+		"asciichart": "^1.5.25"
+	}
+}

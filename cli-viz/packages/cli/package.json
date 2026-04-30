@@ -1,0 +1,16 @@
+{
+	"name": "@viz/cli",
+	"version": "0.1.0",
+	"bin": "src/index.ts",
+	"dependencies": {
+		"@viz/core": "workspace:*",
+		"asciichart": "^1.5.25",
+		"commander": "^13.0.0",
+		"ink": "^7.0.1",
+		"react": "^19.1.0"
+	},
+	"devDependencies": {
+		"@types/react": "^19.1.0",
+		"ink-testing-library": "latest"
+	}
+}
