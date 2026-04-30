@@ -69,6 +69,7 @@ def report(
             account=account,
             skip_trend=skip_trend,
             skip_lightgbm=(model == "kronos"),
+            skip_kronos=(model == "lightgbm"),
             qualitative=qualitative,
             hf_config=hf_config,
         )

@@ -53,6 +53,49 @@ def _to_raw_code(qlib_code: str) -> str:
     return qlib_code
 
 
+def _get_stock_missing_dates(data_dir: Path, stock_code: str, cal_dates: list[str]) -> list[str]:
+    """Find later calendar dates that a specific stock is missing data for.
+
+    Only considers dates at and after the stock's first data point (start_idx).
+    Dates before the stock started trading are not considered "missing"
+    since the stock did not yet exist.
+
+    Args:
+        data_dir: Qlib data directory
+        stock_code: Qlib format code (e.g. "SH600000")
+        cal_dates: Sorted list of trading dates from calendar file (YYYY-MM-DD)
+
+    Returns:
+        List of dates in YYYY-MM-DD format that are missing for this stock.
+    """
+    code_lower = stock_code.lower()
+    stock_dir = data_dir / 'features' / code_lower
+    close_path = stock_dir / 'close.day.bin'
+
+    if not close_path.exists():
+        return []
+
+    try:
+        arr = _read_bin(close_path)
+    except Exception:
+        return []
+
+    if arr.size < 2:
+        return []
+
+    start_idx = int(arr[0])
+    n_data = len(arr) - 1
+
+    if n_data >= len(cal_dates):
+        return []
+
+    last_data_idx = start_idx + n_data
+    if last_data_idx < len(cal_dates):
+        return cal_dates[last_data_idx:]
+
+    return []
+
+
 def _get_missing_dates(data_dir: Path) -> list[str]:
     """Find trading dates that need to be added after last calendar date.
 
@@ -323,7 +366,37 @@ def update_daily(
     """
     dirp = _data_dir(data_dir)
 
-    missing_dates = _get_missing_dates(dirp)
+    day_file = dirp / 'calendars' / 'day.txt'
+    cal_dates: list[str] = []
+    if day_file.exists():
+        with day_file.open('r', encoding='utf-8') as f:
+            for line in f:
+                s = line.strip()
+                if s:
+                    cal_dates.append(s.split()[0])
+
+    all_dates_set: set[str] = set()
+    import akshare as ak
+    try:
+        df_dates = ak.tool_trade_date_hist_sina()
+        for d in df_dates['trade_date']:
+            all_dates_set.add(str(d)[:10])
+    except Exception as e:
+        logger.error("Failed to fetch trading dates from akshare: %s", e)
+        return {'dates': [], 'stocks_updated': 0, 'stocks_skipped': 0, 'errors': []}
+    all_dates = sorted(all_dates_set)
+
+    if stock_list is None:
+        missing_dates = _get_missing_dates(dirp)
+    else:
+        missing_by_stock: dict[str, list[str]] = {}
+        union_missing: set[str] = set()
+        for code in stock_list:
+            missing = _get_stock_missing_dates(dirp, code, cal_dates)
+            missing_by_stock[code] = missing
+            union_missing.update(missing)
+        missing_dates = sorted(union_missing)
+
     if not missing_dates:
         return {'dates': [], 'stocks_updated': 0, 'stocks_skipped': 0, 'errors': []}
 
@@ -347,7 +420,9 @@ def update_daily(
             if (i + 1) % 500 == 0:
                 logger.info("  [%s] Progress: %d/%d stocks", date, i + 1, len(stock_list))
 
-            # Rate limiting: 0.3s between akshare calls
+            if stock_list is not None and date not in missing_by_stock.get(stock_code, []):
+                continue
+
             time.sleep(0.3)
 
             ohlcv = _fetch_daily_data(stock_code, date)
@@ -360,7 +435,6 @@ def update_daily(
                 stocks_skipped += 1
                 continue
 
-            # Read factor from existing bin (last value)
             factor = 1.0
             factor_path = stock_dir / 'factor.day.bin'
             if factor_path.exists():
@@ -371,7 +445,6 @@ def update_daily(
                 except Exception:
                     pass
 
-            # Read adjclose scale (constant per stock)
             adjclose_scale = _get_adjclose_scale(stock_dir)
 
             prev_close = prev_closes.get(stock_code)
@@ -383,12 +456,13 @@ def update_daily(
 
             stocks_updated += 1
 
-        # Append this date to calendar after processing all stocks
-        try:
-            _update_calendar(dirp, date)
-        except Exception as e:
-            logger.error("Failed to update calendar for %s: %s", date, e)
-            errors.append(f"calendar:{date}:{e}")
+        if date not in cal_dates:
+            try:
+                _update_calendar(dirp, date)
+                cal_dates.append(date)
+            except Exception as e:
+                logger.error("Failed to update calendar for %s: %s", date, e)
+                errors.append(f"calendar:{date}:{e}")
 
     logger.info(
         "Daily update complete. Updated: %d, Skipped: %d, Errors: %d",
@@ -403,4 +477,4 @@ def update_daily(
     }
 
 
-__all__ = ['update_daily', '_get_missing_dates', '_get_stock_list', '_fetch_daily_data']
+__all__ = ['update_daily', '_get_missing_dates', '_get_stock_list', '_fetch_daily_data', '_get_stock_missing_dates']

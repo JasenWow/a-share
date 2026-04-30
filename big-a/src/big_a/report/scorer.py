@@ -59,6 +59,7 @@ class WatchlistScorer:
         account: float = 1_000_000,
         skip_trend: bool = False,
         skip_lightgbm: bool = False,
+        skip_kronos: bool = False,
         qualitative: bool = False,
         hf_config: dict[str, Any] | None = None,
     ) -> None:
@@ -84,6 +85,8 @@ class WatchlistScorer:
             If True, skip Kronos rolling trend computation (much faster).
         skip_lightgbm : bool
             If True, skip LightGBM scoring (much faster).
+        skip_kronos : bool
+            If True, skip Kronos scoring (much faster).
         qualitative : bool
             If True, run hedge fund qualitative analysis.
         hf_config : dict or None
@@ -98,6 +101,7 @@ class WatchlistScorer:
         self.account = account
         self.skip_trend = skip_trend
         self.skip_lightgbm = skip_lightgbm
+        self.skip_kronos = skip_kronos
         self.qualitative = qualitative
         self.hf_config = hf_config or {}
         self._kronos_config: dict[str, Any] | None = None
@@ -155,7 +159,7 @@ class WatchlistScorer:
             signal_mode=cfg.get("signal_mode", "mean"),
         )
 
-        gen.load_model(local_files_only=True)
+        gen.load_model(local_files_only=False)
 
         from qlib.data import D
         calendar = D.calendar(freq="day")
@@ -215,7 +219,7 @@ class WatchlistScorer:
             signal_mode=cfg.get("signal_mode", "mean"),
         )
 
-        gen.load_model(local_files_only=True)
+        gen.load_model(local_files_only=False)
 
         # Get trading calendar
         from qlib.data import D
@@ -529,7 +533,11 @@ class WatchlistScorer:
             lightgbm_scores = self.score_lightgbm(instruments)
 
         logger.info("正在运行 Kronos 模型打分 (首次加载模型可能需要 30 秒以上)...")
-        kronos_scores = self.score_kronos(instruments)
+        if self.skip_kronos:
+            kronos_scores = pd.DataFrame()
+            logger.info("Skipping Kronos scoring (skip_kronos=True)")
+        else:
+            kronos_scores = self.score_kronos(instruments)
         if self.skip_trend:
             kronos_trend = pd.DataFrame()
             logger.info("Skipping Kronos rolling trend (skip_trend=True)")
